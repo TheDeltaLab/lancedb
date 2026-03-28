@@ -74,18 +74,7 @@ jobs:
               sudo apt-get install -y protobuf-compiler pkg-config &&
               rustup target add x86_64-unknown-linux-musl &&
               export EXTRA_ARGS="-x"
-          - target: aarch64-unknown-linux-gnu
-            host: ubuntu-24.04
-            # https://github.com/napi-rs/napi-rs/blob/main/debian-aarch64.Dockerfile
-            docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-debian-aarch64
-            features: "fp16kernels"
-            pre_build: |-
-              set -e &&
-              apt-get update &&
-              apt-get install -y protobuf-compiler pkg-config &&
-              export TARGET_CC=clang TARGET_CXX=clang++ &&
-              export CFLAGS="$CFLAGS -DAT_HWCAP2=26" &&
-              rustup target add aarch64-unknown-linux-gnu
+
     name: build - ${{ matrix.settings.target }}
     runs-on: ${{ matrix.settings.host }}
     defaults:
