@@ -13,16 +13,7 @@
 name: Build Java LanceDB Core
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - java/**
-      - .github/workflows/java.yml
-  pull_request:
-    paths:
-      - java/**
-      - .github/workflows/java.yml
+  workflow_dispatch:
 
 jobs:
   build-java:
