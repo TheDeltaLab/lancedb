@@ -1,9 +1,6 @@
 name: NodeJS (NAPI)
 
 on:
-  push:
-    branches:
-      - main
   pull_request:
     paths:
       - Cargo.toml
