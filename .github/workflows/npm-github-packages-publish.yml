@@ -3,6 +3,8 @@ name: NPM GitHub Packages Publish
 env:
   MACOSX_DEPLOYMENT_TARGET: '10.13'
   CARGO_INCREMENTAL: '0'
+  RUSTC_WRAPPER: sccache
+  SCCACHE_GHA_ENABLED: 'true'
 
 permissions:
   contents: read
@@ -58,12 +60,10 @@ jobs:
           - target: x86_64-unknown-linux-gnu
             host: ubuntu-latest
             features: fp16kernels
-            # https://github.com/napi-rs/napi-rs/blob/main/debian.Dockerfile
-            docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-debian
             pre_build: |-
-              set -e &&
-              apt-get update &&
-              apt-get install -y protobuf-compiler pkg-config &&
+              set -e
+              sudo apt-get update
+              sudo apt-get install -y protobuf-compiler pkg-config clang
               export TARGET_CC=clang TARGET_CXX=clang++
           - target: x86_64-unknown-linux-musl
             host: ubuntu-24.04
@@ -105,6 +105,8 @@ jobs:
             .cargo-cache
             target/
           key: nodejs-${{ matrix.settings.target }}-cargo-${{ matrix.settings.host }}
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@v0.0.9
       - name: Install dependencies
         run: npm ci
       - name: Install Zig
