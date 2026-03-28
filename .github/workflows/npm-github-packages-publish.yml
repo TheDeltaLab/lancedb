@@ -219,42 +219,31 @@ jobs:
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "npm_tag=$NPM_TAG" >> $GITHUB_OUTPUT
           echo "Publishing version: $VERSION with tag: $NPM_TAG"
-      - name: Update package scope and version for GitHub Packages
+      - name: Update version for GitHub Packages
         run: |
           node << 'EOF'
             const fs = require('fs');
             const path = require('path');
             const version = process.env.VERSION;
 
-            // Update main package.json
+            // Update main package.json version
             const pkg = JSON.parse(fs.readFileSync('./package.json', 'utf8'));
-            pkg.name = pkg.name.replace('@lancedb', '@thedeltalab');
             pkg.version = version;
             fs.writeFileSync('./package.json', JSON.stringify(pkg, null, 2) + '\n');
             console.log('Main:', pkg.name, pkg.version);
 
-            // Update all platform package.json files
+            // Update all platform package.json versions
             const npmDir = './npm';
             if (fs.existsSync(npmDir)) {
               for (const platform of fs.readdirSync(npmDir)) {
                 const p = path.join(npmDir, platform, 'package.json');
                 if (fs.existsSync(p)) {
                   const pp = JSON.parse(fs.readFileSync(p, 'utf8'));
-                  pp.name = pp.name.replace('@lancedb', '@thedeltalab');
                   pp.version = version;
                   fs.writeFileSync(p, JSON.stringify(pp, null, 2) + '\n');
                   console.log('Platform:', pp.name, pp.version);
                 }
               }
-            }
-
-            // Update @lancedb references inside dist/native.js
-            const nativeJs = './dist/native.js';
-            if (fs.existsSync(nativeJs)) {
-              const content = fs.readFileSync(nativeJs, 'utf8');
-              const updated = content.replaceAll('@lancedb', '@thedeltalab');
-              fs.writeFileSync(nativeJs, updated);
-              console.log('Patched dist/native.js');
             }
           EOF
         env:

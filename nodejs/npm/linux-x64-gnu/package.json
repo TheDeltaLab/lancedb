@@ -1,5 +1,5 @@
 {
-	"name": "@lancedb/lancedb-linux-x64-gnu",
+	"name": "@thedeltalab/lancedb-linux-x64-gnu",
 	"version": "0.27.2-beta.1",
 	"os": [
 		"linux"
