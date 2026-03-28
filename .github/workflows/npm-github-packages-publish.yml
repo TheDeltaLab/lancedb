@@ -247,6 +247,15 @@ jobs:
                 }
               }
             }
+
+            // Update @lancedb references inside dist/native.js
+            const nativeJs = './dist/native.js';
+            if (fs.existsSync(nativeJs)) {
+              const content = fs.readFileSync(nativeJs, 'utf8');
+              const updated = content.replaceAll('@lancedb', '@thedeltalab');
+              fs.writeFileSync(nativeJs, updated);
+              console.log('Patched dist/native.js');
+            }
           EOF
         env:
           VERSION: ${{ steps.versioning.outputs.version }}
