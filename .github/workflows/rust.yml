@@ -84,7 +84,7 @@ jobs:
     # To build all features, we need more disk space than is available
     # on the free OSS github runner. This is mostly due to the the
     # sentence-transformers feature.
-    runs-on: ubuntu-2404-4x-x64
+    runs-on: ubuntu-24.04
     defaults:
       run:
         shell: bash
@@ -107,6 +107,8 @@ jobs:
       - uses: rui314/setup-mold@v1
       - name: Make Swap
         run: |
+          sudo swapoff /swapfile || true
+          sudo rm -f /swapfile
           sudo fallocate -l 16G /swapfile
           sudo chmod 600 /swapfile
           sudo mkswap /swapfile
