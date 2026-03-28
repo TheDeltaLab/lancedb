@@ -1,5 +1,5 @@
 {
-  "name": "@lancedb/lancedb",
+  "name": "@thedeltalab/lancedb",
   "description": "LanceDB: A serverless, low-latency vector database for AI applications",
   "keywords": [
     "database",

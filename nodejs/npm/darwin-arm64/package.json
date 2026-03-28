@@ -1,5 +1,5 @@
 {
-	"name": "@lancedb/lancedb-darwin-arm64",
+	"name": "@thedeltalab/lancedb-darwin-arm64",
 	"version": "0.27.2-beta.1",
 	"os": [
 		"darwin"
