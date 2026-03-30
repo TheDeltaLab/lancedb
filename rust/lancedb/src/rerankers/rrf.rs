@@ -6,9 +6,9 @@ use std::sync::Arc;
 
 use arrow::{
     array::downcast_array,
-    compute::{sort_to_indices, take},
+    compute::{concat_batches, filter_record_batch, sort_to_indices, take},
 };
-use arrow_array::{Float32Array, RecordBatch, UInt64Array};
+use arrow_array::{Array, BooleanArray, Float32Array, RecordBatch, UInt64Array};
 use arrow_schema::{DataType, Field, Schema, SortOptions};
 use async_trait::async_trait;
 use lance::dataset::ROW_ID;
@@ -67,12 +67,15 @@ impl RRFReranker {
 
     /// Merge vector and FTS results keeping all score columns.
     ///
-    /// Before concatenating, each side is padded with null-filled columns for
-    /// scores it doesn't already carry:
-    /// - vector results get a null `_score` column if absent
-    /// - FTS results get a null `_distance` column if absent
+    /// For rows in **both** result sets the vector `_distance` and the FTS
+    /// `_score` are both preserved.  For rows that appear in only one set the
+    /// missing score column is filled with `null`:
     ///
-    /// This ensures both `_distance` and `_score` survive the merge.
+    /// | source        | `_distance` | `_score`  |
+    /// |---------------|-------------|-----------|
+    /// | vector only   | value       | `null`    |
+    /// | FTS only      | `null`      | value     |
+    /// | both          | value       | value     |
     fn merge_results_all_scores(
         &self,
         vector_results: RecordBatch,
@@ -80,37 +83,114 @@ impl RRFReranker {
     ) -> Result<RecordBatch> {
         use arrow_array::new_null_array;
         use arrow_schema::SchemaBuilder;
+        use std::collections::{HashMap, HashSet};
 
-        let add_null_column =
-            |batch: &RecordBatch, col_name: &str, dtype: DataType| -> Result<RecordBatch> {
-                if batch.schema().column_with_name(col_name).is_some() {
-                    return Ok(batch.clone());
+        // ------------------------------------------------------------------
+        // 1. Build row_id -> _score map from FTS results
+        // ------------------------------------------------------------------
+        let fts_row_ids: UInt64Array =
+            downcast_array(fts_results.column_by_name(ROW_ID).ok_or_else(|| {
+                Error::InvalidInput {
+                    message: format!("column '{}' missing from fts_results", ROW_ID),
                 }
-                let null_col = new_null_array(&dtype, batch.num_rows());
-                let mut builder = SchemaBuilder::from(batch.schema().fields());
-                builder.push(Arc::new(Field::new(col_name, dtype, true)));
-                let new_schema = Arc::new(builder.finish());
-                let mut cols = batch.columns().to_vec();
-                cols.push(null_col);
-                Ok(RecordBatch::try_new(new_schema, cols)?)
-            };
+            })?);
+        let fts_score_map: HashMap<u64, Option<f32>> = {
+            let score_col = fts_results.column_by_name("_score");
+            fts_row_ids
+                .values()
+                .iter()
+                .enumerate()
+                .map(|(i, &id)| {
+                    let val = score_col.and_then(|col| {
+                        let arr: Float32Array = downcast_array(col);
+                        if arr.is_null(i) {
+                            None
+                        } else {
+                            Some(arr.value(i))
+                        }
+                    });
+                    (id, val)
+                })
+                .collect()
+        };
 
-        let vector_results = add_null_column(&vector_results, "_score", DataType::Float32)?;
-        let fts_results = add_null_column(&fts_results, "_distance", DataType::Float32)?;
+        // ------------------------------------------------------------------
+        // 2. Build updated vector_results:
+        //    Add _score column, filled with the FTS score for overlapping rows
+        //    and null for vector-only rows.
+        // ------------------------------------------------------------------
+        let vector_results = if vector_results.schema().column_with_name("_score").is_some() {
+            vector_results
+        } else {
+            let vec_row_ids: UInt64Array =
+                downcast_array(vector_results.column_by_name(ROW_ID).ok_or_else(|| {
+                    Error::InvalidInput {
+                        message: format!("column '{}' missing from vector_results", ROW_ID),
+                    }
+                })?);
+            let scores: Float32Array = Float32Array::from_iter(
+                vec_row_ids
+                    .values()
+                    .iter()
+                    .map(|id| fts_score_map.get(id).copied().flatten()),
+            );
+            let mut builder = SchemaBuilder::from(vector_results.schema().fields());
+            builder.push(Arc::new(Field::new("_score", DataType::Float32, true)));
+            let new_schema = Arc::new(builder.finish());
+            let mut cols = vector_results.columns().to_vec();
+            cols.push(Arc::new(scores));
+            RecordBatch::try_new(new_schema, cols)?
+        };
 
-        // Reorder fts columns to match vector schema so concat_batches is happy
+        // ------------------------------------------------------------------
+        // 3. FTS-only rows: rows in FTS that are not in vector results
+        // ------------------------------------------------------------------
+        let vec_row_ids: UInt64Array =
+            downcast_array(vector_results.column_by_name(ROW_ID).unwrap());
+        let vec_id_set: HashSet<u64> = vec_row_ids.values().iter().copied().collect();
+
+        let fts_only_mask = BooleanArray::from_iter(
+            fts_row_ids
+                .values()
+                .iter()
+                .map(|id| Some(!vec_id_set.contains(id))),
+        );
+        let fts_only = filter_record_batch(&fts_results, &fts_only_mask)?;
+
+        // ------------------------------------------------------------------
+        // 4. Add null _distance to FTS-only rows if absent
+        // ------------------------------------------------------------------
+        let fts_only = if fts_only.schema().column_with_name("_distance").is_some() {
+            fts_only
+        } else {
+            let null_dist = new_null_array(&DataType::Float32, fts_only.num_rows());
+            let mut builder = SchemaBuilder::from(fts_only.schema().fields());
+            builder.push(Arc::new(Field::new("_distance", DataType::Float32, true)));
+            let new_schema = Arc::new(builder.finish());
+            let mut cols = fts_only.columns().to_vec();
+            cols.push(Arc::new(null_dist));
+            RecordBatch::try_new(new_schema, cols)?
+        };
+
+        // ------------------------------------------------------------------
+        // 5. Reorder FTS-only columns to match vector schema, then concat
+        // ------------------------------------------------------------------
+        if fts_only.num_rows() == 0 {
+            return Ok(vector_results);
+        }
+
         let vec_schema = vector_results.schema();
         let fts_reordered = {
             let indices: std::result::Result<Vec<usize>, _> = vec_schema
                 .fields()
                 .iter()
                 .map(|f| {
-                    fts_results
+                    fts_only
                         .schema()
                         .index_of(f.name())
                         .map_err(|_| Error::InvalidInput {
                             message: format!(
-                                "column '{}' missing from fts_results after padding",
+                                "column '{}' missing from fts_only after padding",
                                 f.name()
                             ),
                         })
@@ -119,12 +199,15 @@ impl RRFReranker {
             let indices = indices?;
             let cols: Vec<_> = indices
                 .iter()
-                .map(|&i| fts_results.column(i).clone())
+                .map(|&i| fts_only.column(i).clone())
                 .collect();
             RecordBatch::try_new(vec_schema.clone(), cols)?
         };
 
-        self.merge_results(vector_results, fts_reordered)
+        Ok(concat_batches(
+            &vec_schema,
+            [vector_results, fts_reordered].iter(),
+        )?)
     }
 }
 
@@ -386,8 +469,9 @@ pub mod test {
         );
     }
 
-    /// `ReturnScore::All` retains both `_distance` (vector) and `_score` (FTS)
-    /// by padding missing columns with nulls before merging.
+    /// `ReturnScore::All` retains both `_distance` (vector) and `_score` (FTS).
+    /// For rows in both result sets, both scores must be non-null.
+    /// For vector-only rows, `_score` is null; for FTS-only rows, `_distance` is null.
     #[tokio::test]
     async fn test_rrf_return_score_all_keeps_both_raw_scores() {
         let vec_schema = Arc::new(Schema::new(vec![
@@ -401,6 +485,7 @@ pub mod test {
             Field::new("_score", DataType::Float32, true),
         ]));
 
+        // id=1: vector-only, id=2: both, id=3: FTS-only
         let vec_results = RecordBatch::try_new(
             vec_schema,
             vec![
@@ -430,20 +515,53 @@ pub mod test {
         let schema = result.schema();
         let field_names: Vec<&str> = schema.fields().iter().map(|f| f.name().as_str()).collect();
 
+        assert!(field_names.contains(&"_distance"), "{:?}", field_names);
+        assert!(field_names.contains(&"_score"), "{:?}", field_names);
+        assert!(field_names.contains(&RELEVANCE_SCORE), "{:?}", field_names);
+
+        // Verify per-row score values:
+        // result is sorted by _relevance_score descending.
+        // id=2 appears in both  → _distance=0.2, _score=0.9
+        // id=1 vector-only      → _distance=0.1, _score=null
+        // id=3 FTS-only         → _distance=null, _score=0.8
+        let row_ids: UInt64Array = downcast_array(result.column_by_name(ROW_ID).unwrap());
+        let distances: Float32Array = downcast_array(result.column_by_name("_distance").unwrap());
+        let scores: Float32Array = downcast_array(result.column_by_name("_score").unwrap());
+
+        let rows: Vec<(u64, Option<f32>, Option<f32>)> = (0..result.num_rows())
+            .map(|i| {
+                (
+                    row_ids.value(i),
+                    if distances.is_null(i) {
+                        None
+                    } else {
+                        Some(distances.value(i))
+                    },
+                    if scores.is_null(i) {
+                        None
+                    } else {
+                        Some(scores.value(i))
+                    },
+                )
+            })
+            .collect();
+
+        // id=2 must have both scores
+        let row2 = rows.iter().find(|(id, _, _)| *id == 2).unwrap();
+        assert!(row2.1.is_some(), "id=2 _distance should be non-null");
         assert!(
-            field_names.contains(&"_distance"),
-            "_distance should be present: {:?}",
-            field_names
+            row2.2.is_some(),
+            "id=2 _score should be non-null (was in FTS)"
         );
-        assert!(
-            field_names.contains(&"_score"),
-            "_score should be present: {:?}",
-            field_names
-        );
-        assert!(
-            field_names.contains(&RELEVANCE_SCORE),
-            "_relevance_score should be present: {:?}",
-            field_names
-        );
+
+        // id=1 (vector-only) must have _distance, no _score
+        let row1 = rows.iter().find(|(id, _, _)| *id == 1).unwrap();
+        assert!(row1.1.is_some(), "id=1 _distance should be non-null");
+        assert!(row1.2.is_none(), "id=1 _score should be null (vector-only)");
+
+        // id=3 (FTS-only) must have _score, no _distance
+        let row3 = rows.iter().find(|(id, _, _)| *id == 3).unwrap();
+        assert!(row3.1.is_none(), "id=3 _distance should be null (FTS-only)");
+        assert!(row3.2.is_some(), "id=3 _score should be non-null");
     }
 }
