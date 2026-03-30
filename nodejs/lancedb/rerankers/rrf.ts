@@ -6,6 +6,20 @@ import { fromBufferToRecordBatch, fromRecordBatchToBuffer } from "../arrow";
 import { RrfReranker as NativeRRFReranker } from "../native";
 
 /**
+ * Options for {@link RRFReranker.create}.
+ */
+export interface RRFRerankerOptions {
+  /** Constant used in the RRF formula (default `60`). */
+  k?: number;
+  /**
+   * Controls which score columns appear in the output.
+   * - `"relevance"` (default): only `_relevance_score` is kept.
+   * - `"all"`: `_distance`, `_score`, and `_relevance_score` are all retained.
+   */
+  returnScore?: "relevance" | "all";
+}
+
+/**
  * Reranks the results using the Reciprocal Rank Fusion (RRF) algorithm.
  *
  * @param k - Constant used in the RRF formula (default `60`). Experiments
@@ -27,12 +41,25 @@ export class RRFReranker {
     this.inner = inner;
   }
 
+  /** Create with a specific `k` value (default `60`, `returnScore` defaults to `"relevance"`). */
+  public static async create(k?: number): Promise<RRFReranker>;
+  /** Create with an options object. */
+  public static async create(options: RRFRerankerOptions): Promise<RRFReranker>;
   public static async create(
-    k: number = 60,
-    returnScore: "relevance" | "all" = "relevance",
-  ) {
+    kOrOptions?: number | RRFRerankerOptions,
+  ): Promise<RRFReranker> {
+    let k = 60;
+    let score: "relevance" | "all" = "relevance";
+
+    if (typeof kOrOptions === "object" && kOrOptions !== null) {
+      k = kOrOptions.k ?? 60;
+      score = kOrOptions.returnScore ?? "relevance";
+    } else if (kOrOptions !== undefined) {
+      k = kOrOptions;
+    }
+
     return new RRFReranker(
-      await NativeRRFReranker.tryNew(new Float32Array([k]), returnScore),
+      await NativeRRFReranker.tryNew(new Float32Array([k]), score),
     );
   }
 

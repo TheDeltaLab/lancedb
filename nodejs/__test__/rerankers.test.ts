@@ -81,7 +81,7 @@ describe("rerankers", function () {
     // When returnScore="all", both _distance (vector) and _score (FTS) are
     // retained alongside _relevance_score. Rows that only appear in one result
     // set will have null for the score column from the other set.
-    const reranker = await RRFReranker.create(60, "all");
+    const reranker = await RRFReranker.create({ k: 60, returnScore: "all" });
     const result = await table
       .query()
       .nearestTo([0.1, 0.1])
@@ -101,7 +101,7 @@ describe("rerankers", function () {
     // When returnScore="relevance" (default), the original merge behavior is
     // preserved: _score (FTS) is kept, _distance is not present because the
     // merge uses the FTS schema as its base.
-    const reranker = await RRFReranker.create(60, "relevance");
+    const reranker = await RRFReranker.create({ returnScore: "relevance" });
     const result = await table
       .query()
       .nearestTo([0.1, 0.1])
