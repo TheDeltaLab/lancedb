@@ -1,8 +1,8 @@
-[**@lancedb/lancedb**](../README.md) • **Docs**
+[**@thedeltalab/lancedb**](../README.md) • **Docs**
 
 ***
 
-[@lancedb/lancedb](../globals.md) / QueryBase
+[@thedeltalab/lancedb](../globals.md) / QueryBase
 
 # Class: QueryBase&lt;NativeQueryType&gt;
 

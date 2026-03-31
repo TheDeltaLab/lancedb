@@ -1,8 +1,8 @@
-[**@lancedb/lancedb**](../README.md) • **Docs**
+[**@thedeltalab/lancedb**](../README.md) • **Docs**
 
 ***
 
-[@lancedb/lancedb](../globals.md) / OpenTableOptions
+[@thedeltalab/lancedb](../globals.md) / OpenTableOptions
 
 # Interface: OpenTableOptions
 

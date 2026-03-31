@@ -1,8 +1,8 @@
-[**@lancedb/lancedb**](../README.md) • **Docs**
+[**@thedeltalab/lancedb**](../README.md) • **Docs**
 
 ***
 
-[@lancedb/lancedb](../globals.md) / ColumnAlteration
+[@thedeltalab/lancedb](../globals.md) / ColumnAlteration
 
 # Interface: ColumnAlteration
 

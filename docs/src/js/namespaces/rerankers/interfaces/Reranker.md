@@ -1,8 +1,8 @@
-[**@lancedb/lancedb**](../../../README.md) • **Docs**
+[**@thedeltalab/lancedb**](../../../README.md) • **Docs**
 
 ***
 
-[@lancedb/lancedb](../../../globals.md) / [rerankers](../README.md) / Reranker
+[@thedeltalab/lancedb](../../../globals.md) / [rerankers](../README.md) / Reranker
 
 # Interface: Reranker
 

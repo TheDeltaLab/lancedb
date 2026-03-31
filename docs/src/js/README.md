@@ -1,4 +1,4 @@
-**@lancedb/lancedb** • [**Docs**](globals.md)
+**@thedeltalab/lancedb** • [**Docs**](globals.md)
 
 ***
 
