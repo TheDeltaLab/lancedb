@@ -109,14 +109,11 @@ jobs:
       working-directory: nodejs/examples
       run: npm ci
     - name: Test examples
-      working-directory: ./
+      working-directory: nodejs/examples
       env:
         OPENAI_API_KEY: test
         OPENAI_BASE_URL: http://0.0.0.0:8000
-      run: |
-        python ci/mock_openai.py &
-        cd nodejs/examples
-        npm test
+      run: npm test
     - name: Check docs
       run: |
         # We run this as part of the job because the binary needs to be built

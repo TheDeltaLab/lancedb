@@ -3,9 +3,7 @@ on:
   pull_request:
     paths:
       - rust/**
-      - python/**
       - nodejs/**
-      - java/**
       - .github/workflows/license-header-check.yml
 jobs:
   check-licenses:
@@ -20,9 +18,5 @@ jobs:
             mv /tmp/bin/license-header-checker /usr/local/bin/
       - name: Check license headers (rust)
         run: license-header-checker -a -v ./rust/license_header.txt ./ rs && [[ -z `git status -s` ]]
-      - name: Check license headers (python)
-        run: license-header-checker -a -v ./python/license_header.txt python py && [[ -z `git status -s` ]]
       - name: Check license headers (typescript)
         run: license-header-checker -a -v ./nodejs/license_header.txt nodejs ts && [[ -z `git status -s` ]]
-      - name: Check license headers (java)
-        run: license-header-checker -a -v ./nodejs/license_header.txt java java && [[ -z `git status -s` ]]

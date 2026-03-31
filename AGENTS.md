@@ -2,14 +2,13 @@ LanceDB is a database designed for retrieval, including vector, full-text, and h
 It is a wrapper around Lance. There are two backends: local (in-process like SQLite) and
 remote (against LanceDB Cloud).
 
-The core of LanceDB is written in Rust. There are bindings in Python, Typescript, and Java.
+This is TheDeltaLab's fork. We maintain only the Rust core and Node.js bindings.
+Python and Java bindings have been removed.
 
 Project layout:
 
 * `rust/lancedb`: The LanceDB core Rust implementation.
-* `python`: The Python bindings, using PyO3.
 * `nodejs`: The Typescript bindings, using napi-rs
-* `java`: The Java bindings
 
 Common commands:
 
@@ -45,9 +44,9 @@ Before committing changes, run formatting.
 ## Example plan: adding a new method on Table
 
 Adding a new method involves first adding it to the Rust core, then exposing it
-in the Python and TypeScript bindings. There are both local and remote tables.
+in the TypeScript bindings. There are both local and remote tables.
 Remote tables are implemented via a HTTP API and require the `remote` cargo
-feature flag to be enabled. Python has both sync and async methods.
+feature flag to be enabled.
 
 Rust core changes:
 
@@ -58,17 +57,6 @@ Rust core changes:
 4. Implement new trait method on `RemoteTable` in `rust/lancedb/src/remote/table.rs`.
     * Test with unit test in `rust/lancedb/src/remote/table.rs` against mocked endpoint.
 
-Python bindings changes:
-
-1. Add PyO3 method binding in `python/src/table.rs`. Run `make develop` to compile bindings.
-2. Add types for PyO3 method in `python/python/lancedb/_lancedb.pyi`.
-3. Add method to `AsyncTable` class in `python/python/lancedb/table.py`.
-4. Add abstract method to `Table` abstract base class in `python/python/lancedb/table.py`.
-5. Add concrete sync method to `LanceTable` class in `python/python/lancedb/table.py`.
-    * Should use `LOOP.run()` to call the corresponding `AsyncTable` method.
-6. Add concrete sync method to `RemoteTable` class in `python/python/lancedb/remote/table.py`.
-7. Add unit test in `python/tests/test_table.py`.
-
 TypeScript bindings changes:
 
 1. Add napi-rs method binding on `Table` in `nodejs/src/table.rs`.
@@ -78,6 +66,16 @@ TypeScript bindings changes:
     * Note: despite the name, this class is also used for remote tables.
 5. Add test in `nodejs/__test__/table.test.ts`.
 6. Run `npm run docs` to generate TypeScript documentation.
+
+## Upstream tracking
+
+This fork tracks [lancedb/lancedb](https://github.com/lancedb/lancedb). When upstream
+releases a new version:
+
+* Review the release changelog and associated PRs.
+* Cherry-pick or merge changes that touch `rust/` and `nodejs/`.
+* Ignore changes isolated to `python/`, `java/`, or their docs.
+* Update `[workspace.metadata.upstream].version` in `Cargo.toml` after syncing.
 
 ## Review Guidelines
 

@@ -1,6 +1,6 @@
 {
 	"name": "@thedeltalab/lancedb-linux-arm64-gnu",
-	"version": "0.27.2-beta.1",
+	"version": "0.1.0",
 	"os": [
 		"linux"
 	],
