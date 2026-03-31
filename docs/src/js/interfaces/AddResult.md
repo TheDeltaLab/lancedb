@@ -1,8 +1,8 @@
-[**@lancedb/lancedb**](../README.md) • **Docs**
+[**@thedeltalab/lancedb**](../README.md) • **Docs**
 
 ***
 
-[@lancedb/lancedb](../globals.md) / AddResult
+[@thedeltalab/lancedb](../globals.md) / AddResult
 
 # Interface: AddResult
 

@@ -1,8 +1,8 @@
-[**@lancedb/lancedb**](../README.md) • **Docs**
+[**@thedeltalab/lancedb**](../README.md) • **Docs**
 
 ***
 
-[@lancedb/lancedb](../globals.md) / FtsOptions
+[@thedeltalab/lancedb](../globals.md) / FtsOptions
 
 # Interface: FtsOptions
 

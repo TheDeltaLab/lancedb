@@ -1,8 +1,8 @@
-[**@lancedb/lancedb**](../../../README.md) • **Docs**
+[**@thedeltalab/lancedb**](../../../README.md) • **Docs**
 
 ***
 
-[@lancedb/lancedb](../../../globals.md) / [embedding](../README.md) / FieldOptions
+[@thedeltalab/lancedb](../../../globals.md) / [embedding](../README.md) / FieldOptions
 
 # Interface: FieldOptions&lt;T&gt;
 

@@ -256,7 +256,7 @@ paths:
     post:
       description: Create a "merge insert" operation
         This operation can add rows, update rows, and remove rows all in a single
-        transaction. See python method `lancedb.table.Table.merge_insert` for examples.
+        transaction. See the `merge_insert` method on `Table` for examples.
       tags:
         - Data
       summary: Merge Insert

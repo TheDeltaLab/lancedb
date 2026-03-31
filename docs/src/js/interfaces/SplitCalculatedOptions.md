@@ -1,8 +1,8 @@
-[**@lancedb/lancedb**](../README.md) • **Docs**
+[**@thedeltalab/lancedb**](../README.md) • **Docs**
 
 ***
 
-[@lancedb/lancedb](../globals.md) / SplitCalculatedOptions
+[@thedeltalab/lancedb](../globals.md) / SplitCalculatedOptions
 
 # Interface: SplitCalculatedOptions
 

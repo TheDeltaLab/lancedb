@@ -1,8 +1,8 @@
-[**@lancedb/lancedb**](../../../README.md) • **Docs**
+[**@thedeltalab/lancedb**](../../../README.md) • **Docs**
 
 ***
 
-[@lancedb/lancedb](../../../globals.md) / [rerankers](../README.md) / RRFReranker
+[@thedeltalab/lancedb](../../../globals.md) / [rerankers](../README.md) / RRFReranker
 
 # Class: RRFReranker
 
@@ -49,16 +49,34 @@ rerankHybrid(
 
 ### create()
 
+#### create(k)
+
 ```ts
-static create(k, returnScore): Promise<RRFReranker>
+static create(k?): Promise<RRFReranker>
 ```
 
-#### Parameters
+Create with a specific `k` value (default `60`, `returnScore` defaults to `"relevance"`).
 
-* **k**: `number` = `60`
+##### Parameters
 
-* **returnScore**: `"all"` \| `"relevance"` = `"relevance"`
+* **k?**: `number`
 
-#### Returns
+##### Returns
+
+`Promise`&lt;[`RRFReranker`](RRFReranker.md)&gt;
+
+#### create(options)
+
+```ts
+static create(options): Promise<RRFReranker>
+```
+
+Create with an options object.
+
+##### Parameters
+
+* **options**: [`RRFRerankerOptions`](../interfaces/RRFRerankerOptions.md)
+
+##### Returns
 
 `Promise`&lt;[`RRFReranker`](RRFReranker.md)&gt;
