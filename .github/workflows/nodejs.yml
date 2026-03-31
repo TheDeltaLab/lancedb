@@ -113,7 +113,9 @@ jobs:
       env:
         OPENAI_API_KEY: test
         OPENAI_BASE_URL: http://0.0.0.0:8000
-      run: npm test
+      run: |
+        node ../../ci/mock_openai.js &
+        npm test
     - name: Check docs
       run: |
         # We run this as part of the job because the binary needs to be built
