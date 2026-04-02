@@ -24,12 +24,7 @@
     "binaryName": "lancedb",
     "targets": [
       "aarch64-apple-darwin",
-      "x86_64-unknown-linux-gnu",
-      "aarch64-unknown-linux-gnu",
-      "x86_64-unknown-linux-musl",
-      "aarch64-unknown-linux-musl",
-      "x86_64-pc-windows-msvc",
-      "aarch64-pc-windows-msvc"
+      "x86_64-unknown-linux-gnu"
     ]
   },
   "license": "Apache-2.0",
@@ -69,7 +64,7 @@
     "node": ">= 18"
   },
   "cpu": ["x64", "arm64"],
-  "os": ["darwin", "linux", "win32"],
+  "os": ["darwin", "linux"],
   "scripts": {
     "artifacts": "napi artifacts",
     "build:debug": "napi build --platform --dts ../lancedb/native.d.ts --js ../lancedb/native.js --output-dir lancedb",

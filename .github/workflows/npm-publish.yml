@@ -119,21 +119,6 @@ jobs:
             host: macos-latest
             features: fp16kernels
             pre_build: brew install protobuf
-          - target: x86_64-pc-windows-msvc
-            host: windows-latest
-            features: ","
-            pre_build: |-
-              choco install --no-progress protoc ninja nasm
-              tail -n 1000 /c/ProgramData/chocolatey/logs/chocolatey.log
-              # There is an issue where choco doesn't add nasm to the path
-              export PATH="$PATH:/c/Program Files/NASM"
-              nasm -v
-          - target: aarch64-pc-windows-msvc
-            host: windows-latest
-            features: ","
-            pre_build: |-
-                choco install --no-progress protoc
-                rustup target add aarch64-pc-windows-msvc
           - target: x86_64-unknown-linux-gnu
             host: ubuntu-latest
             features: fp16kernels
@@ -148,39 +133,6 @@ jobs:
               # so it picks up GCC even though the napi-rs image sets CC=clang.
               # Override to use the image's clang-18 which supports -fuse-ld=lld.
               export TARGET_CC=clang TARGET_CXX=clang++
-          - target: x86_64-unknown-linux-musl
-            # This one seems to need some extra memory
-            host: ubuntu-24.04
-            features: fp16kernels
-            pre_build: |-
-              set -e &&
-              sudo apt-get update &&
-              sudo apt-get install -y protobuf-compiler pkg-config &&
-              rustup target add x86_64-unknown-linux-musl &&
-              export EXTRA_ARGS="-x"
-          - target: aarch64-unknown-linux-gnu
-            host: ubuntu-24.04-arm
-            features: "fp16kernels"
-            # https://github.com/napi-rs/napi-rs/blob/main/debian-aarch64.Dockerfile
-            docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-debian-aarch64
-            pre_build: |-
-              set -e &&
-              apt-get update &&
-              apt-get install -y protobuf-compiler pkg-config &&
-              export TARGET_CC=clang TARGET_CXX=clang++ &&
-              # The manylinux2014 sysroot has glibc 2.17 headers which lack
-              # AT_HWCAP2 (added in Linux 3.17). Define it for aws-lc-sys.
-              export CFLAGS="$CFLAGS -DAT_HWCAP2=26" &&
-              rustup target add aarch64-unknown-linux-gnu
-          - target: aarch64-unknown-linux-musl
-            host: ubuntu-24.04
-            features: ","
-            pre_build: |-
-              set -e &&
-              sudo apt-get update &&
-              sudo apt-get install -y protobuf-compiler &&
-              rustup target add aarch64-unknown-linux-musl &&
-              export EXTRA_ARGS="-x"
     name: build-lto - ${{ matrix.settings.target }}
     runs-on: ${{ matrix.settings.host }}
     env:
@@ -217,16 +169,6 @@ jobs:
             nodejs-lto-${{ matrix.settings.target }}-cargo-
       - name: Install dependencies
         run: npm ci
-      - name: Install Zig
-        uses: mlugg/setup-zig@v2
-        if: ${{ contains(matrix.settings.target, 'musl') }}
-        with:
-          version: 0.14.1
-      - name: Install cargo-zigbuild
-        uses: taiki-e/install-action@v2
-        if: ${{ contains(matrix.settings.target, 'musl') }}
-        with:
-          tool: cargo-zigbuild
       - name: Build in docker
         uses: addnab/docker-run-action@v3
         if: ${{ matrix.settings.docker }}
@@ -257,7 +199,6 @@ jobs:
               --dts ../lancedb/native.d.ts \
               --js ../lancedb/native.js \
               --strip \
-              $EXTRA_ARGS \
               --output-dir dist/
         if: ${{ !matrix.settings.docker }}
         shell: bash
@@ -294,15 +235,10 @@ jobs:
       fail-fast: false
       matrix:
         settings:
-          # TODO: Get tests passing on Windows (failing from test tmpdir issue)
-          # - host: windows-latest
-          #   target: x86_64-pc-windows-msvc
           - host: macos-latest
             target: aarch64-apple-darwin
           - target: x86_64-unknown-linux-gnu
             host: ubuntu-latest
-          - target: aarch64-unknown-linux-gnu
-            host: ubuntu-24.04-arm
         node:
           - '20'
     runs-on: ${{ matrix.settings.host }}
@@ -412,21 +348,6 @@ jobs:
             host: macos-latest
             features: fp16kernels
             pre_build: brew install protobuf
-          - target: x86_64-pc-windows-msvc
-            host: windows-latest
-            features: ","
-            pre_build: |-
-              choco install --no-progress protoc ninja nasm
-              tail -n 1000 /c/ProgramData/chocolatey/logs/chocolatey.log
-              # There is an issue where choco doesn't add nasm to the path
-              export PATH="$PATH:/c/Program Files/NASM"
-              nasm -v
-          - target: aarch64-pc-windows-msvc
-            host: windows-latest
-            features: ","
-            pre_build: |-
-                choco install --no-progress protoc
-                rustup target add aarch64-pc-windows-msvc
           - target: x86_64-unknown-linux-gnu
             host: ubuntu-latest
             features: fp16kernels
@@ -441,39 +362,6 @@ jobs:
               # so it picks up GCC even though the napi-rs image sets CC=clang.
               # Override to use the image's clang-18 which supports -fuse-ld=lld.
               export TARGET_CC=clang TARGET_CXX=clang++
-          - target: x86_64-unknown-linux-musl
-            # This one seems to need some extra memory
-            host: ubuntu-24.04
-            features: fp16kernels
-            pre_build: |-
-              set -e &&
-              sudo apt-get update &&
-              sudo apt-get install -y protobuf-compiler pkg-config &&
-              rustup target add x86_64-unknown-linux-musl &&
-              export EXTRA_ARGS="-x"
-          - target: aarch64-unknown-linux-gnu
-            host: ubuntu-24.04-arm
-            features: "fp16kernels"
-            # https://github.com/napi-rs/napi-rs/blob/main/debian-aarch64.Dockerfile
-            docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-debian-aarch64
-            pre_build: |-
-              set -e &&
-              apt-get update &&
-              apt-get install -y protobuf-compiler pkg-config &&
-              export TARGET_CC=clang TARGET_CXX=clang++ &&
-              # The manylinux2014 sysroot has glibc 2.17 headers which lack
-              # AT_HWCAP2 (added in Linux 3.17). Define it for aws-lc-sys.
-              export CFLAGS="$CFLAGS -DAT_HWCAP2=26" &&
-              rustup target add aarch64-unknown-linux-gnu
-          - target: aarch64-unknown-linux-musl
-            host: ubuntu-24.04
-            features: ","
-            pre_build: |-
-              set -e &&
-              sudo apt-get update &&
-              sudo apt-get install -y protobuf-compiler &&
-              rustup target add aarch64-unknown-linux-musl &&
-              export EXTRA_ARGS="-x"
     name: build - ${{ matrix.settings.target }}
     runs-on: ${{ matrix.settings.host }}
     env:
@@ -509,16 +397,6 @@ jobs:
             nodejs-${{ matrix.settings.target }}-cargo-
       - name: Install dependencies
         run: npm ci
-      - name: Install Zig
-        uses: mlugg/setup-zig@v2
-        if: ${{ contains(matrix.settings.target, 'musl') }}
-        with:
-          version: 0.14.1
-      - name: Install cargo-zigbuild
-        uses: taiki-e/install-action@v2
-        if: ${{ contains(matrix.settings.target, 'musl') }}
-        with:
-          tool: cargo-zigbuild
       - name: Build in docker
         uses: addnab/docker-run-action@v3
         if: ${{ matrix.settings.docker }}
@@ -548,7 +426,6 @@ jobs:
               --dts ../lancedb/native.d.ts \
               --js ../lancedb/native.js \
               --strip \
-              $EXTRA_ARGS \
               --output-dir dist/
         if: ${{ !matrix.settings.docker }}
         shell: bash
@@ -584,15 +461,10 @@ jobs:
       fail-fast: false
       matrix:
         settings:
-          # TODO: Get tests passing on Windows (failing from test tmpdir issue)
-          # - host: windows-latest
-          #   target: x86_64-pc-windows-msvc
           - host: macos-latest
             target: aarch64-apple-darwin
           - target: x86_64-unknown-linux-gnu
             host: ubuntu-latest
-          - target: aarch64-unknown-linux-gnu
-            host: ubuntu-24.04-arm
         node:
           - '20'
     runs-on: ${{ matrix.settings.host }}

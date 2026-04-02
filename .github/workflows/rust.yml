@@ -124,10 +124,7 @@ jobs:
 
   macos:
     timeout-minutes: 30
-    strategy:
-      matrix:
-        mac-runner: ["macos-14", "macos-15"]
-    runs-on: "${{ matrix.mac-runner }}"
+    runs-on: macos-15
     defaults:
       run:
         shell: bash
@@ -150,34 +147,6 @@ jobs:
             | jq -r '.packages[] | .features | keys | .[]' \
             | grep -v s3-test | sort | uniq | paste -s -d "," -`
           cargo test --profile ci --features $ALL_FEATURES --locked
-
-  windows:
-    runs-on: windows-2022
-    strategy:
-      matrix:
-        target:
-          - x86_64-pc-windows-msvc
-          - aarch64-pc-windows-msvc
-    defaults:
-      run:
-        working-directory: rust/lancedb
-    steps:
-      - uses: actions/checkout@v4
-      - name: Set target
-        run: rustup target add ${{ matrix.target }}
-      - uses: Swatinem/rust-cache@v2
-      - name: Install Protoc v21.12
-        run: choco install --no-progress protoc
-      - name: Build
-        run: |
-          $env:VCPKG_ROOT = $env:VCPKG_INSTALLATION_ROOT
-          cargo build --profile ci --features aws,remote --tests --locked --target ${{ matrix.target }}
-      - name: Run tests
-        # Can only run tests when target matches host
-        if: ${{ matrix.target == 'x86_64-pc-windows-msvc' }}
-        run: |
-          $env:VCPKG_ROOT = $env:VCPKG_INSTALLATION_ROOT
-          cargo test --profile ci --features aws,remote --locked
 
   msrv:
     # Check the minimum supported Rust version
