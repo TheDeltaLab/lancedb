@@ -55,7 +55,7 @@ A query execution plan with runtime metrics for each step.
 #### Example
 
 ```ts
-import * as lancedb from "@lancedb/lancedb"
+import * as lancedb from "@delta-ai/lancedb"
 
 const db = await lancedb.connect("./.lancedb");
 const table = await db.createTable("my_table", [
@@ -130,7 +130,7 @@ A Promise that resolves to a string containing the query execution plan explanat
 #### Example
 
 ```ts
-import * as lancedb from "@lancedb/lancedb"
+import * as lancedb from "@delta-ai/lancedb"
 const db = await lancedb.connect("./.lancedb");
 const table = await db.createTable("my_table", [
   { vector: [1.1, 0.9], id: "1" },
