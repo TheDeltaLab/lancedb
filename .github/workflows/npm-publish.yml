@@ -156,19 +156,18 @@ jobs:
         with:
           toolchain: stable
           targets: ${{ matrix.settings.target }}
-      - name: Setup sccache
-        if: ${{ !matrix.settings.docker }}
-        uses: mozilla-actions/sccache-action@v0.0.6
-      - name: Configure sccache for cargo
+      - name: Install sccache
         if: ${{ !matrix.settings.docker }}
         run: |
-          cat >> ~/.cargo/config.toml <<'TOML'
-          [build]
-          rustc-wrapper = "sccache"
-          TOML
+          SCCACHE_VERSION="v0.8.1"
+          if [[ "$RUNNER_OS" == "macOS" ]]; then
+            ARCH="aarch64-apple-darwin"
+          else
+            ARCH="x86_64-unknown-linux-musl"
+          fi
+          curl -fsSL "https://github.com/mozilla/sccache/releases/download/${SCCACHE_VERSION}/sccache-${SCCACHE_VERSION}-${ARCH}.tar.gz" \
+            | tar xz --strip-components=1 -C /usr/local/bin/ "sccache-${SCCACHE_VERSION}-${ARCH}/sccache"
         working-directory: .
-        env:
-          SCCACHE_GHA_ENABLED: "true"
       - name: Download sccache for Docker
         if: ${{ matrix.settings.docker }}
         run: |
@@ -207,12 +206,11 @@ jobs:
             -e SCCACHE_GHA_ENABLED=true
           run: |
             set -e
-            # Configure sccache via cargo config so cargo metadata is not affected
-            mkdir -p /usr/local/cargo
-            cat >> /usr/local/cargo/config.toml <<'TOML'
-            [build]
-            rustc-wrapper = "sccache"
-            TOML
+            # Start sccache server first, then set RUSTC_WRAPPER. This avoids
+            # the "Server startup failed" error that occurs when cargo metadata
+            # triggers a cold sccache start via RUSTC_WRAPPER.
+            sccache --start-server
+            export RUSTC_WRAPPER=sccache
             export CARGO_INCREMENTAL=0
             export CARGO_PROFILE_RELEASE_LTO=fat
             ${{ matrix.settings.pre_build }}
@@ -226,6 +224,9 @@ jobs:
             sccache --show-stats
       - name: Build
         run: |
+          # Start sccache server first, then set RUSTC_WRAPPER
+          sccache --start-server
+          export RUSTC_WRAPPER=sccache
           ${{ matrix.settings.pre_build }}
           npx napi build --platform --release \
               --features ${{ matrix.settings.features }} \
@@ -424,19 +425,18 @@ jobs:
         with:
           toolchain: stable
           targets: ${{ matrix.settings.target }}
-      - name: Setup sccache
-        if: ${{ !matrix.settings.docker }}
-        uses: mozilla-actions/sccache-action@v0.0.6
-      - name: Configure sccache for cargo
+      - name: Install sccache
         if: ${{ !matrix.settings.docker }}
         run: |
-          cat >> ~/.cargo/config.toml <<'TOML'
-          [build]
-          rustc-wrapper = "sccache"
-          TOML
+          SCCACHE_VERSION="v0.8.1"
+          if [[ "$RUNNER_OS" == "macOS" ]]; then
+            ARCH="aarch64-apple-darwin"
+          else
+            ARCH="x86_64-unknown-linux-musl"
+          fi
+          curl -fsSL "https://github.com/mozilla/sccache/releases/download/${SCCACHE_VERSION}/sccache-${SCCACHE_VERSION}-${ARCH}.tar.gz" \
+            | tar xz --strip-components=1 -C /usr/local/bin/ "sccache-${SCCACHE_VERSION}-${ARCH}/sccache"
         working-directory: .
-        env:
-          SCCACHE_GHA_ENABLED: "true"
       - name: Download sccache for Docker
         if: ${{ matrix.settings.docker }}
         run: |
@@ -475,12 +475,9 @@ jobs:
             -e SCCACHE_GHA_ENABLED=true
           run: |
             set -e
-            # Configure sccache via cargo config so cargo metadata is not affected
-            mkdir -p /usr/local/cargo
-            cat >> /usr/local/cargo/config.toml <<'TOML'
-            [build]
-            rustc-wrapper = "sccache"
-            TOML
+            # Start sccache server first, then set RUSTC_WRAPPER
+            sccache --start-server
+            export RUSTC_WRAPPER=sccache
             export CARGO_PROFILE_RELEASE_LTO=false
             ${{ matrix.settings.pre_build }}
             npx napi build --platform --release \
@@ -493,6 +490,9 @@ jobs:
             sccache --show-stats
       - name: Build
         run: |
+          # Start sccache server first, then set RUSTC_WRAPPER
+          sccache --start-server
+          export RUSTC_WRAPPER=sccache
           ${{ matrix.settings.pre_build }}
           npx napi build --platform --release \
               --features ${{ matrix.settings.features }} \
