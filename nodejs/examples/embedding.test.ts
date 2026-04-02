@@ -1,10 +1,14 @@
+// --8<-- [start:imports]
+import * as lancedb from "@delta-ai/lancedb";
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright The LanceDB Authors
 import { expect, test } from "@jest/globals";
-// --8<-- [start:imports]
-import * as lancedb from "@delta-ai/lancedb";
 import "@delta-ai/lancedb/embedding/openai";
-import { LanceSchema, getRegistry, register } from "@delta-ai/lancedb/embedding";
+import {
+  LanceSchema,
+  getRegistry,
+  register,
+} from "@delta-ai/lancedb/embedding";
 import { EmbeddingFunction } from "@delta-ai/lancedb/embedding";
 import { type Float, Float32, Utf8 } from "apache-arrow";
 // --8<-- [end:imports]

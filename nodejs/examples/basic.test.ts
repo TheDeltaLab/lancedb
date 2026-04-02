@@ -1,8 +1,8 @@
+// --8<--  [start:imports]
+import * as lancedb from "@delta-ai/lancedb";
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright The LanceDB Authors
 import { expect, test } from "@jest/globals";
-// --8<--  [start:imports]
-import * as lancedb from "@delta-ai/lancedb";
 import * as arrow from "apache-arrow";
 import {
   Field,

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright The LanceDB Authors
 
-import { expect, test } from "@jest/globals";
 import * as lancedb from "@delta-ai/lancedb";
+import { expect, test } from "@jest/globals";
 
 test("basic upsert", async () => {
   const db = await lancedb.connect("memory://");

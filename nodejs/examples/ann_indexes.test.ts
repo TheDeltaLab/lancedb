@@ -1,9 +1,9 @@
-// SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: Copyright The LanceDB Authors
-import { expect, test } from "@jest/globals";
 // --8<-- [start:import]
 import * as lancedb from "@delta-ai/lancedb";
 import type { VectorQuery } from "@delta-ai/lancedb";
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright The LanceDB Authors
+import { expect, test } from "@jest/globals";
 // --8<-- [end:import]
 import { withTempDirectory } from "./util.ts";
 

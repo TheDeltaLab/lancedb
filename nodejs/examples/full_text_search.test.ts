@@ -1,7 +1,7 @@
+import * as lancedb from "@delta-ai/lancedb";
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright The LanceDB Authors
 import { expect, test } from "@jest/globals";
-import * as lancedb from "@delta-ai/lancedb";
 import { withTempDirectory } from "./util.ts";
 
 test("full text search", async () => {

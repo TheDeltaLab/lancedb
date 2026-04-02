@@ -1,10 +1,3 @@
-import {
-  type FeatureExtractionPipeline,
-  pipeline,
-} from "@huggingface/transformers";
-// SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: Copyright The LanceDB Authors
-import { expect, test } from "@jest/globals";
 // --8<-- [start:imports]
 import * as lancedb from "@delta-ai/lancedb";
 import {
@@ -13,6 +6,13 @@ import {
   getRegistry,
   register,
 } from "@delta-ai/lancedb/embedding";
+import {
+  type FeatureExtractionPipeline,
+  pipeline,
+} from "@huggingface/transformers";
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright The LanceDB Authors
+import { expect, test } from "@jest/globals";
 // --8<-- [end:imports]
 import { withTempDirectory } from "./util.ts";
 
