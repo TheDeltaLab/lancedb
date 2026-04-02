@@ -173,11 +173,18 @@ jobs:
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
-            .sccache/
             target/
           key: nodejs-lto-${{ matrix.settings.target }}-cargo-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
             nodejs-lto-${{ matrix.settings.target }}-cargo-
+      - name: Cache sccache
+        if: ${{ matrix.settings.docker }}
+        uses: actions/cache@v4
+        with:
+          path: .sccache
+          key: sccache-lto-${{ matrix.settings.target }}-${{ github.run_id }}
+          restore-keys: |
+            sccache-lto-${{ matrix.settings.target }}-
       - name: Install dependencies
         run: npm ci
       - name: Build in docker
@@ -431,11 +438,18 @@ jobs:
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
-            .sccache/
             target/
           key: nodejs-${{ matrix.settings.target }}-cargo-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
             nodejs-${{ matrix.settings.target }}-cargo-
+      - name: Cache sccache
+        if: ${{ matrix.settings.docker }}
+        uses: actions/cache@v4
+        with:
+          path: .sccache
+          key: sccache-${{ matrix.settings.target }}-${{ github.run_id }}
+          restore-keys: |
+            sccache-${{ matrix.settings.target }}-
       - name: Install dependencies
         run: npm ci
       - name: Build in docker
