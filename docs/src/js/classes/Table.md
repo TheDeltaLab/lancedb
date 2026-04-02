@@ -1,8 +1,8 @@
-[**@thedeltalab/lancedb**](../README.md) • **Docs**
+[**@delta-ai/lancedb**](../README.md) • **Docs**
 
 ***
 
-[@thedeltalab/lancedb](../globals.md) / Table
+[@delta-ai/lancedb](../globals.md) / Table
 
 # Class: `abstract` Table
 
@@ -137,7 +137,7 @@ wish to return to standard mode, call `checkoutLatest`.
 #### Example
 
 ```typescript
-import * as lancedb from "@lancedb/lancedb"
+import * as lancedb from "@delta-ai/lancedb"
 const db = await lancedb.connect("./.lancedb");
 const table = await db.createTable("my_table", [
   { vector: [1.1, 0.9], type: "vector" },

@@ -1,8 +1,8 @@
-[**@thedeltalab/lancedb**](../README.md) • **Docs**
+[**@delta-ai/lancedb**](../README.md) • **Docs**
 
 ***
 
-[@thedeltalab/lancedb](../globals.md) / packBits
+[@delta-ai/lancedb](../globals.md) / packBits
 
 # Function: packBits()
 

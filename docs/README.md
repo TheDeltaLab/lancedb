@@ -37,7 +37,7 @@ You can see the tests are at:
 
 ### Checking typescript examples
 
-The `@lancedb/lancedb` package must be built before running the tests:
+The `@delta-ai/lancedb` package must be built before running the tests:
 
 ```shell
 pushd nodejs

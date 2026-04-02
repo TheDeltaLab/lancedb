@@ -1,5 +1,5 @@
 {
-	"name": "@thedeltalab/lancedb-linux-x64-gnu",
+	"name": "@delta-ai/lancedb-linux-x64-gnu",
 	"version": "0.1.0",
 	"os": [
 		"linux"
@@ -20,6 +20,6 @@
 	],
 	"repository": {
 		"type": "git",
-		"url": "https://github.com/lancedb/lancedb"
+		"url": "https://github.com/TheDeltaLab/lancedb"
 	}
 }

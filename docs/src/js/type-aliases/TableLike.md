@@ -1,8 +1,8 @@
-[**@thedeltalab/lancedb**](../README.md) • **Docs**
+[**@delta-ai/lancedb**](../README.md) • **Docs**
 
 ***
 
-[@thedeltalab/lancedb](../globals.md) / TableLike
+[@delta-ai/lancedb](../globals.md) / TableLike
 
 # Type Alias: TableLike
 

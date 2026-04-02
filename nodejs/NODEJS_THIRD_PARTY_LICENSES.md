@@ -144,7 +144,7 @@
 [@jridgewell/set-array@1.1.2](https://github.com/jridgewell/set-array) - MIT
 [@jridgewell/sourcemap-codec@1.4.15](https://github.com/jridgewell/sourcemap-codec) - MIT
 [@jridgewell/trace-mapping@0.3.22](https://github.com/jridgewell/trace-mapping) - MIT
-[@lancedb/lancedb@0.26.2](https://github.com/lancedb/lancedb) - Apache-2.0
+[@delta-ai/lancedb@0.1.0](https://github.com/TheDeltaLab/lancedb) - Apache-2.0
 [@napi-rs/cli@2.18.3](https://github.com/napi-rs/napi-rs) - MIT
 [@nodelib/fs.scandir@2.1.5](https://github.com/nodelib/nodelib/tree/master/packages/fs/fs.scandir) - MIT
 [@nodelib/fs.stat@2.0.5](https://github.com/nodelib/nodelib/tree/master/packages/fs/fs.stat) - MIT

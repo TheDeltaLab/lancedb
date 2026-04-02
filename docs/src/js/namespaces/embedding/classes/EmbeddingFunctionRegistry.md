@@ -1,8 +1,8 @@
-[**@thedeltalab/lancedb**](../../../README.md) • **Docs**
+[**@delta-ai/lancedb**](../../../README.md) • **Docs**
 
 ***
 
-[@thedeltalab/lancedb](../../../globals.md) / [embedding](../README.md) / EmbeddingFunctionRegistry
+[@delta-ai/lancedb](../../../globals.md) / [embedding](../README.md) / EmbeddingFunctionRegistry
 
 # Class: EmbeddingFunctionRegistry
 

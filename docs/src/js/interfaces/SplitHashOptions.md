@@ -1,8 +1,8 @@
-[**@thedeltalab/lancedb**](../README.md) • **Docs**
+[**@delta-ai/lancedb**](../README.md) • **Docs**
 
 ***
 
-[@thedeltalab/lancedb](../globals.md) / SplitHashOptions
+[@delta-ai/lancedb](../globals.md) / SplitHashOptions
 
 # Interface: SplitHashOptions
 

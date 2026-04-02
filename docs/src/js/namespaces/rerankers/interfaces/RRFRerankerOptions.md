@@ -1,8 +1,8 @@
-[**@thedeltalab/lancedb**](../../../README.md) • **Docs**
+[**@delta-ai/lancedb**](../../../README.md) • **Docs**
 
 ***
 
-[@thedeltalab/lancedb](../../../globals.md) / [rerankers](../README.md) / RRFRerankerOptions
+[@delta-ai/lancedb](../../../globals.md) / [rerankers](../README.md) / RRFRerankerOptions
 
 # Interface: RRFRerankerOptions
 

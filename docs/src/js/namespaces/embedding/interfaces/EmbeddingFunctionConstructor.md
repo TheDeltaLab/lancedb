@@ -1,8 +1,8 @@
-[**@thedeltalab/lancedb**](../../../README.md) • **Docs**
+[**@delta-ai/lancedb**](../../../README.md) • **Docs**
 
 ***
 
-[@thedeltalab/lancedb](../../../globals.md) / [embedding](../README.md) / EmbeddingFunctionConstructor
+[@delta-ai/lancedb](../../../globals.md) / [embedding](../README.md) / EmbeddingFunctionConstructor
 
 # Interface: EmbeddingFunctionConstructor&lt;T&gt;
 
