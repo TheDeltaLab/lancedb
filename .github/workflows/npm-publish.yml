@@ -217,6 +217,7 @@ jobs:
               --strip \
               --output-dir dist/
             sccache --show-stats
+            chmod -R a+r /sccache
       - name: Build
         run: |
           # Unset RUSTC_WRAPPER (set globally by sccache-action) so that
@@ -481,6 +482,7 @@ jobs:
               --strip \
               --output-dir dist/
             sccache --show-stats
+            chmod -R a+r /sccache
       - name: Build
         run: |
           # Unset RUSTC_WRAPPER (set globally by sccache-action) so that
