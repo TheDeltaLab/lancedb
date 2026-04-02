@@ -3,6 +3,9 @@ name: NPM Publish
 env:
   MACOSX_DEPLOYMENT_TARGET: '10.13'
   CARGO_INCREMENTAL: '0'
+  SCCACHE_GHA_ENABLED: "true"
+  RUSTC_WRAPPER: "sccache"
+  CARGO_BUILD_TIMINGS: "1"
 
 permissions:
   contents: write
@@ -20,6 +23,15 @@ on:
       - .github/workflows/npm-publish.yml
       - Cargo.toml # Change in dependency frequently breaks builds
       - Cargo.lock
+  workflow_dispatch:
+    inputs:
+      release_type:
+        description: 'Release type'
+        required: true
+        default: 'nightly'
+        type: choice
+        options:
+          - nightly
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -120,20 +132,13 @@ jobs:
           - target: x86_64-unknown-linux-gnu
             host: ubuntu-latest
             features: fp16kernels
-            # https://github.com/napi-rs/napi-rs/blob/main/debian.Dockerfile
-            docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-debian
             pre_build: |-
               set -e &&
-              apt-get update &&
-              apt-get install -y protobuf-compiler pkg-config &&
-              # The base image (manylinux2014-cross) sets TARGET_CC to the old
-              # GCC 4.8 cross-compiler. aws-lc-sys checks TARGET_CC before CC,
-              # so it picks up GCC even though the napi-rs image sets CC=clang.
-              # Override to use the image's clang-18 which supports -fuse-ld=lld.
-              export TARGET_CC=clang TARGET_CXX=clang++
+              sudo apt-get update &&
+              sudo apt-get install -y protobuf-compiler pkg-config
           - target: x86_64-unknown-linux-musl
             # This one seems to need some extra memory
-            host: ubuntu-2404-8x-x64
+            host: ubuntu-24.04
             features: fp16kernels
             pre_build: |-
               set -e &&
@@ -142,21 +147,14 @@ jobs:
               rustup target add x86_64-unknown-linux-musl &&
               export EXTRA_ARGS="-x"
           - target: aarch64-unknown-linux-gnu
-            host: ubuntu-2404-8x-x64
-            # https://github.com/napi-rs/napi-rs/blob/main/debian-aarch64.Dockerfile
-            docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-debian-aarch64
+            host: ubuntu-24.04-arm
             features: "fp16kernels"
             pre_build: |-
               set -e &&
-              apt-get update &&
-              apt-get install -y protobuf-compiler pkg-config &&
-              export TARGET_CC=clang TARGET_CXX=clang++ &&
-              # The manylinux2014 sysroot has glibc 2.17 headers which lack
-              # AT_HWCAP2 (added in Linux 3.17). Define it for aws-lc-sys.
-              export CFLAGS="$CFLAGS -DAT_HWCAP2=26" &&
-              rustup target add aarch64-unknown-linux-gnu
+              sudo apt-get update &&
+              sudo apt-get install -y protobuf-compiler pkg-config
           - target: aarch64-unknown-linux-musl
-            host: ubuntu-2404-8x-x64
+            host: ubuntu-24.04
             features: ","
             pre_build: |-
               set -e &&
@@ -173,17 +171,17 @@ jobs:
       - uses: actions/checkout@v4
       - name: Setup node
         uses: actions/setup-node@v4
-        if: ${{ !matrix.settings.docker }}
         with:
           node-version: 20
           cache: npm
           cache-dependency-path: nodejs/package-lock.json
       - name: Install
         uses: dtolnay/rust-toolchain@stable
-        if: ${{ !matrix.settings.docker }}
         with:
           toolchain: stable
           targets: ${{ matrix.settings.target }}
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@v0.0.9
       - name: Cache cargo
         uses: actions/cache@v4
         with:
@@ -191,9 +189,10 @@ jobs:
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
-            .cargo-cache
             target/
-          key: nodejs-${{ matrix.settings.target }}-cargo-${{ matrix.settings.host }}
+          key: nodejs-${{ matrix.settings.target }}-cargo-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            nodejs-${{ matrix.settings.target }}-cargo-
       - name: Install dependencies
         run: npm ci
       - name: Install Zig
@@ -206,25 +205,6 @@ jobs:
         if: ${{ contains(matrix.settings.target, 'musl') }}
         with:
           tool: cargo-zigbuild
-      - name: Build in docker
-        uses: addnab/docker-run-action@v3
-        if: ${{ matrix.settings.docker }}
-        with:
-          image: ${{ matrix.settings.docker }}
-          options: "--user 0:0 -v ${{ github.workspace }}/.cargo-cache/git/db:/usr/local/cargo/git/db \
-                    -v ${{ github.workspace }}/.cargo/registry/cache:/usr/local/cargo/registry/cache \
-                    -v ${{ github.workspace }}/.cargo/registry/index:/usr/local/cargo/registry/index \
-                    -v ${{ github.workspace }}:/build -w /build/nodejs"
-          run: |
-            set -e
-            ${{ matrix.settings.pre_build }}
-            npx napi build --platform --release \
-              --features ${{ matrix.settings.features }} \
-              --target ${{ matrix.settings.target }} \
-              --dts ../lancedb/native.d.ts \
-              --js ../lancedb/native.js \
-              --strip \
-              --output-dir dist/
       - name: Build
         run: |
           ${{ matrix.settings.pre_build }}
@@ -236,8 +216,18 @@ jobs:
               --strip \
               $EXTRA_ARGS \
               --output-dir dist/
-        if: ${{ !matrix.settings.docker }}
         shell: bash
+      - name: Show sccache stats
+        if: always()
+        shell: bash
+        run: sccache --show-stats || true
+      - name: Upload cargo timings
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cargo-timing-${{ matrix.settings.target }}
+          path: target/cargo-timings/cargo-timing*.html
+          if-no-files-found: ignore
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
@@ -273,7 +263,7 @@ jobs:
           - target: x86_64-unknown-linux-gnu
             host: ubuntu-latest
           - target: aarch64-unknown-linux-gnu
-            host: ubuntu-2404-8x-arm64
+            host: ubuntu-24.04-arm
         node:
           - '20'
     runs-on: ${{ matrix.settings.host }}
@@ -354,20 +344,72 @@ jobs:
         run: npx napi artifacts -d nodejs-artifacts
       - name: List packages
         run: find npm
-      - name: Publish
+      - name: Determine version and publish mode
+        id: versioning
+        run: |
+          BASE_VERSION=$(node -p "require('./package.json').version")
+
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ inputs.release_type }}" == "nightly" ]]; then
+            SHORT_SHA=$(git rev-parse --short=6 HEAD)
+            VERSION="${BASE_VERSION}-nightly.${SHORT_SHA}"
+            NPM_TAG="nightly"
+            DRY_RUN=false
+          elif [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            VERSION="$BASE_VERSION"
+            if [[ "$VERSION" == *-* ]]; then
+              NPM_TAG="preview"
+            else
+              NPM_TAG="latest"
+            fi
+            DRY_RUN=false
+          else
+            VERSION="$BASE_VERSION"
+            NPM_TAG="latest"
+            DRY_RUN=true
+          fi
+
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "npm_tag=$NPM_TAG" >> $GITHUB_OUTPUT
+          echo "dry_run=$DRY_RUN" >> $GITHUB_OUTPUT
+          echo "Publishing version: $VERSION with tag: $NPM_TAG (dry_run: $DRY_RUN)"
+      - name: Update version for nightly
+        if: steps.versioning.outputs.npm_tag == 'nightly'
+        run: |
+          node << 'EOF'
+            const fs = require('fs');
+            const path = require('path');
+            const version = process.env.VERSION;
+
+            const pkg = JSON.parse(fs.readFileSync('./package.json', 'utf8'));
+            pkg.version = version;
+            fs.writeFileSync('./package.json', JSON.stringify(pkg, null, 2) + '\n');
+            console.log('Main:', pkg.name, pkg.version);
+
+            const npmDir = './npm';
+            if (fs.existsSync(npmDir)) {
+              for (const platform of fs.readdirSync(npmDir)) {
+                const p = path.join(npmDir, platform, 'package.json');
+                if (fs.existsSync(p)) {
+                  const pp = JSON.parse(fs.readFileSync(p, 'utf8'));
+                  pp.version = version;
+                  fs.writeFileSync(p, JSON.stringify(pp, null, 2) + '\n');
+                  console.log('Platform:', pp.name, pp.version);
+                }
+              }
+            }
+          EOF
         env:
-          DRY_RUN: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+          VERSION: ${{ steps.versioning.outputs.version }}
+      - name: Publish
         run: |
           npm config set provenance true
-          ARGS="--access public"
-          if [[ $DRY_RUN == "true" ]]; then
+          ARGS="--access public --tag ${{ steps.versioning.outputs.npm_tag }}"
+          if [[ "${{ steps.versioning.outputs.dry_run }}" == "true" ]]; then
             ARGS="$ARGS --dry-run"
           fi
-          VERSION=$(node -p "require('./package.json').version")
-          if [[ $VERSION == *-* ]]; then
-            ARGS="$ARGS --tag preview"
-          fi
           npm publish $ARGS
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
   report-failure:
     name: Report Workflow Failure
     runs-on: ubuntu-latest
