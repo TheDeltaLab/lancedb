@@ -2,10 +2,6 @@ name: NPM Publish
 
 env:
   MACOSX_DEPLOYMENT_TARGET: '10.13'
-  CARGO_INCREMENTAL: '0'
-  SCCACHE_GHA_ENABLED: "true"
-  RUSTC_WRAPPER: "sccache"
-  CARGO_BUILD_TIMINGS: "1"
 
 permissions:
   contents: write
@@ -36,6 +32,10 @@ on:
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
+
+# ===========================================================================
+#  GitHub Release (tag push only)
+# ===========================================================================
 
 jobs:
   gh-release:
@@ -105,7 +105,12 @@ jobs:
           name: Node/Rust LanceDB v${{ steps.extract_version.outputs.version }}
           body: ${{ steps.release_notes.outputs.changelog }}
 
-  build-lancedb:
+  # ===========================================================================
+  #  LTO Build (tag push only)
+  # ===========================================================================
+
+  build-lto:
+    if: startsWith(github.ref, 'refs/tags/v')
     strategy:
       fail-fast: false
       matrix:
@@ -132,10 +137,17 @@ jobs:
           - target: x86_64-unknown-linux-gnu
             host: ubuntu-latest
             features: fp16kernels
+            # https://github.com/napi-rs/napi-rs/blob/main/debian.Dockerfile
+            docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-debian
             pre_build: |-
               set -e &&
-              sudo apt-get update &&
-              sudo apt-get install -y protobuf-compiler pkg-config
+              apt-get update &&
+              apt-get install -y protobuf-compiler pkg-config &&
+              # The base image (manylinux2014-cross) sets TARGET_CC to the old
+              # GCC 4.8 cross-compiler. aws-lc-sys checks TARGET_CC before CC,
+              # so it picks up GCC even though the napi-rs image sets CC=clang.
+              # Override to use the image's clang-18 which supports -fuse-ld=lld.
+              export TARGET_CC=clang TARGET_CXX=clang++
           - target: x86_64-unknown-linux-musl
             # This one seems to need some extra memory
             host: ubuntu-24.04
@@ -149,10 +161,17 @@ jobs:
           - target: aarch64-unknown-linux-gnu
             host: ubuntu-24.04-arm
             features: "fp16kernels"
+            # https://github.com/napi-rs/napi-rs/blob/main/debian-aarch64.Dockerfile
+            docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-debian-aarch64
             pre_build: |-
               set -e &&
-              sudo apt-get update &&
-              sudo apt-get install -y protobuf-compiler pkg-config
+              apt-get update &&
+              apt-get install -y protobuf-compiler pkg-config &&
+              export TARGET_CC=clang TARGET_CXX=clang++ &&
+              # The manylinux2014 sysroot has glibc 2.17 headers which lack
+              # AT_HWCAP2 (added in Linux 3.17). Define it for aws-lc-sys.
+              export CFLAGS="$CFLAGS -DAT_HWCAP2=26" &&
+              rustup target add aarch64-unknown-linux-gnu
           - target: aarch64-unknown-linux-musl
             host: ubuntu-24.04
             features: ","
@@ -162,8 +181,11 @@ jobs:
               sudo apt-get install -y protobuf-compiler &&
               rustup target add aarch64-unknown-linux-musl &&
               export EXTRA_ARGS="-x"
-    name: build - ${{ matrix.settings.target }}
+    name: build-lto - ${{ matrix.settings.target }}
     runs-on: ${{ matrix.settings.host }}
+    env:
+      CARGO_PROFILE_RELEASE_LTO: fat
+      CARGO_INCREMENTAL: '0'
     defaults:
       run:
         working-directory: nodejs
@@ -171,17 +193,17 @@ jobs:
       - uses: actions/checkout@v4
       - name: Setup node
         uses: actions/setup-node@v4
+        if: ${{ !matrix.settings.docker }}
         with:
           node-version: 20
           cache: npm
           cache-dependency-path: nodejs/package-lock.json
       - name: Install
         uses: dtolnay/rust-toolchain@stable
+        if: ${{ !matrix.settings.docker }}
         with:
           toolchain: stable
           targets: ${{ matrix.settings.target }}
-      - name: Setup sccache
-        uses: mozilla-actions/sccache-action@v0.0.9
       - name: Cache cargo
         uses: actions/cache@v4
         with:
@@ -190,9 +212,9 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: nodejs-${{ matrix.settings.target }}-cargo-${{ hashFiles('Cargo.lock') }}
+          key: nodejs-lto-${{ matrix.settings.target }}-cargo-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
-            nodejs-${{ matrix.settings.target }}-cargo-
+            nodejs-lto-${{ matrix.settings.target }}-cargo-
       - name: Install dependencies
         run: npm ci
       - name: Install Zig
@@ -205,6 +227,27 @@ jobs:
         if: ${{ contains(matrix.settings.target, 'musl') }}
         with:
           tool: cargo-zigbuild
+      - name: Build in docker
+        uses: addnab/docker-run-action@v3
+        if: ${{ matrix.settings.docker }}
+        with:
+          image: ${{ matrix.settings.docker }}
+          options: "--user 0:0 -v ${{ github.workspace }}/.cargo-cache/git/db:/usr/local/cargo/git/db \
+                    -v ${{ github.workspace }}/.cargo/registry/cache:/usr/local/cargo/registry/cache \
+                    -v ${{ github.workspace }}/.cargo/registry/index:/usr/local/cargo/registry/index \
+                    -v ${{ github.workspace }}:/build -w /build/nodejs"
+          run: |
+            set -e
+            export CARGO_INCREMENTAL=0
+            export CARGO_PROFILE_RELEASE_LTO=fat
+            ${{ matrix.settings.pre_build }}
+            npx napi build --platform --release \
+              --features ${{ matrix.settings.features }} \
+              --target ${{ matrix.settings.target }} \
+              --dts ../lancedb/native.d.ts \
+              --js ../lancedb/native.js \
+              --strip \
+              --output-dir dist/
       - name: Build
         run: |
           ${{ matrix.settings.pre_build }}
@@ -216,22 +259,12 @@ jobs:
               --strip \
               $EXTRA_ARGS \
               --output-dir dist/
+        if: ${{ !matrix.settings.docker }}
         shell: bash
-      - name: Show sccache stats
-        if: always()
-        shell: bash
-        run: sccache --show-stats || true
-      - name: Upload cargo timings
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: cargo-timing-${{ matrix.settings.target }}
-          path: target/cargo-timings/cargo-timing*.html
-          if-no-files-found: ignore
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: lancedb-${{ matrix.settings.target }}
+          name: lancedb-lto-${{ matrix.settings.target }}
           path: nodejs/dist/*.node
           if-no-files-found: error
       # The generic files are the same in all distros so we just pick
@@ -243,14 +276,20 @@ jobs:
         if: ${{ matrix.settings.target == 'aarch64-apple-darwin' }}
         uses: actions/upload-artifact@v4
         with:
-          name: nodejs-dist
+          name: nodejs-dist-lto
           path: |
             nodejs/dist/*
             !nodejs/dist/*.node
-  test-lancedb:
-    name: "Test: ${{ matrix.settings.target }} - node@${{ matrix.node }}"
+
+  # ===========================================================================
+  #  LTO Test (tag push only)
+  # ===========================================================================
+
+  test-lto:
+    name: "test-lto: ${{ matrix.settings.target }} - node@${{ matrix.node }}"
+    if: startsWith(github.ref, 'refs/tags/v')
     needs:
-      - build-lancedb
+      - build-lto
     strategy:
       fail-fast: false
       matrix:
@@ -284,33 +323,33 @@ jobs:
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
-          name: lancedb-${{ matrix.settings.target }}
+          name: lancedb-lto-${{ matrix.settings.target }}
           path: nodejs/dist/
-          # For testing purposes:
-          # run-id: 13982782871
-          # github-token: ${{ secrets.GITHUB_TOKEN }} # token with actions:read permissions on target repo
       - uses: actions/download-artifact@v4
         with:
-          name: nodejs-dist
+          name: nodejs-dist-lto
           path: nodejs/dist
-          # For testing purposes:
-          # github-token: ${{ secrets.GITHUB_TOKEN }} # token with actions:read permissions on target repo
-          # run-id: 13982782871
       - name: List packages
         run: ls -R dist
       - name: Move built files
         run: cp dist/native.d.ts dist/native.js dist/*.node lancedb/
       - name: Test bindings
         run: npm test
-  publish:
-    name: Publish
+
+  # ===========================================================================
+  #  LTO Publish (tag push only)
+  # ===========================================================================
+
+  publish-lto:
+    name: Publish (LTO)
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     defaults:
       run:
         shell: bash
         working-directory: nodejs
     needs:
-      - test-lancedb
+      - test-lto
     steps:
       - uses: actions/checkout@v4
       - name: Setup node
@@ -324,20 +363,303 @@ jobs:
         run: npm ci
       - uses: actions/download-artifact@v4
         with:
-          name: nodejs-dist
+          name: nodejs-dist-lto
           path: nodejs/dist
-          # For testing purposes:
-          # run-id: 13982782871
-          # github-token: ${{ secrets.GITHUB_TOKEN }} # token with actions:read permissions on target repo
       - uses: actions/download-artifact@v4
         name: Download arch-specific binaries
         with:
-          pattern: lancedb-*
+          pattern: lancedb-lto-*
           path: nodejs/nodejs-artifacts
           merge-multiple: true
-          # For testing purposes:
-          # run-id: 13982782871
-          # github-token: ${{ secrets.GITHUB_TOKEN }} # token with actions:read permissions on target repo
+      - name: Display structure of downloaded files
+        run: find dist && find nodejs-artifacts
+      - name: Move artifacts
+        run: npx napi artifacts -d nodejs-artifacts
+      - name: List packages
+        run: find npm
+      - name: Determine version and publish mode
+        id: versioning
+        run: |
+          BASE_VERSION=$(node -p "require('./package.json').version")
+          VERSION="$BASE_VERSION"
+          if [[ "$VERSION" == *-* ]]; then
+            NPM_TAG="preview"
+          else
+            NPM_TAG="latest"
+          fi
+
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "npm_tag=$NPM_TAG" >> $GITHUB_OUTPUT
+          echo "Publishing version: $VERSION with tag: $NPM_TAG"
+      - name: Publish
+        run: |
+          npm config set provenance true
+          npm publish --access public --tag ${{ steps.versioning.outputs.npm_tag }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  # ===========================================================================
+  #  Non-LTO Build (always runs)
+  # ===========================================================================
+
+  build-nonlto:
+    strategy:
+      fail-fast: false
+      matrix:
+        settings:
+          - target: aarch64-apple-darwin
+            host: macos-latest
+            features: fp16kernels
+            pre_build: brew install protobuf
+          - target: x86_64-pc-windows-msvc
+            host: windows-latest
+            features: ","
+            pre_build: |-
+              choco install --no-progress protoc ninja nasm
+              tail -n 1000 /c/ProgramData/chocolatey/logs/chocolatey.log
+              # There is an issue where choco doesn't add nasm to the path
+              export PATH="$PATH:/c/Program Files/NASM"
+              nasm -v
+          - target: aarch64-pc-windows-msvc
+            host: windows-latest
+            features: ","
+            pre_build: |-
+                choco install --no-progress protoc
+                rustup target add aarch64-pc-windows-msvc
+          - target: x86_64-unknown-linux-gnu
+            host: ubuntu-latest
+            features: fp16kernels
+            # https://github.com/napi-rs/napi-rs/blob/main/debian.Dockerfile
+            docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-debian
+            pre_build: |-
+              set -e &&
+              apt-get update &&
+              apt-get install -y protobuf-compiler pkg-config &&
+              # The base image (manylinux2014-cross) sets TARGET_CC to the old
+              # GCC 4.8 cross-compiler. aws-lc-sys checks TARGET_CC before CC,
+              # so it picks up GCC even though the napi-rs image sets CC=clang.
+              # Override to use the image's clang-18 which supports -fuse-ld=lld.
+              export TARGET_CC=clang TARGET_CXX=clang++
+          - target: x86_64-unknown-linux-musl
+            # This one seems to need some extra memory
+            host: ubuntu-24.04
+            features: fp16kernels
+            pre_build: |-
+              set -e &&
+              sudo apt-get update &&
+              sudo apt-get install -y protobuf-compiler pkg-config &&
+              rustup target add x86_64-unknown-linux-musl &&
+              export EXTRA_ARGS="-x"
+          - target: aarch64-unknown-linux-gnu
+            host: ubuntu-24.04-arm
+            features: "fp16kernels"
+            # https://github.com/napi-rs/napi-rs/blob/main/debian-aarch64.Dockerfile
+            docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-debian-aarch64
+            pre_build: |-
+              set -e &&
+              apt-get update &&
+              apt-get install -y protobuf-compiler pkg-config &&
+              export TARGET_CC=clang TARGET_CXX=clang++ &&
+              # The manylinux2014 sysroot has glibc 2.17 headers which lack
+              # AT_HWCAP2 (added in Linux 3.17). Define it for aws-lc-sys.
+              export CFLAGS="$CFLAGS -DAT_HWCAP2=26" &&
+              rustup target add aarch64-unknown-linux-gnu
+          - target: aarch64-unknown-linux-musl
+            host: ubuntu-24.04
+            features: ","
+            pre_build: |-
+              set -e &&
+              sudo apt-get update &&
+              sudo apt-get install -y protobuf-compiler &&
+              rustup target add aarch64-unknown-linux-musl &&
+              export EXTRA_ARGS="-x"
+    name: build - ${{ matrix.settings.target }}
+    runs-on: ${{ matrix.settings.host }}
+    env:
+      CARGO_PROFILE_RELEASE_LTO: 'false'
+    defaults:
+      run:
+        working-directory: nodejs
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup node
+        uses: actions/setup-node@v4
+        if: ${{ !matrix.settings.docker }}
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: nodejs/package-lock.json
+      - name: Install
+        uses: dtolnay/rust-toolchain@stable
+        if: ${{ !matrix.settings.docker }}
+        with:
+          toolchain: stable
+          targets: ${{ matrix.settings.target }}
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: nodejs-${{ matrix.settings.target }}-cargo-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            nodejs-${{ matrix.settings.target }}-cargo-
+      - name: Install dependencies
+        run: npm ci
+      - name: Install Zig
+        uses: mlugg/setup-zig@v2
+        if: ${{ contains(matrix.settings.target, 'musl') }}
+        with:
+          version: 0.14.1
+      - name: Install cargo-zigbuild
+        uses: taiki-e/install-action@v2
+        if: ${{ contains(matrix.settings.target, 'musl') }}
+        with:
+          tool: cargo-zigbuild
+      - name: Build in docker
+        uses: addnab/docker-run-action@v3
+        if: ${{ matrix.settings.docker }}
+        with:
+          image: ${{ matrix.settings.docker }}
+          options: "--user 0:0 -v ${{ github.workspace }}/.cargo-cache/git/db:/usr/local/cargo/git/db \
+                    -v ${{ github.workspace }}/.cargo/registry/cache:/usr/local/cargo/registry/cache \
+                    -v ${{ github.workspace }}/.cargo/registry/index:/usr/local/cargo/registry/index \
+                    -v ${{ github.workspace }}:/build -w /build/nodejs"
+          run: |
+            set -e
+            export CARGO_PROFILE_RELEASE_LTO=false
+            ${{ matrix.settings.pre_build }}
+            npx napi build --platform --release \
+              --features ${{ matrix.settings.features }} \
+              --target ${{ matrix.settings.target }} \
+              --dts ../lancedb/native.d.ts \
+              --js ../lancedb/native.js \
+              --strip \
+              --output-dir dist/
+      - name: Build
+        run: |
+          ${{ matrix.settings.pre_build }}
+          npx napi build --platform --release \
+              --features ${{ matrix.settings.features }} \
+              --target ${{ matrix.settings.target }} \
+              --dts ../lancedb/native.d.ts \
+              --js ../lancedb/native.js \
+              --strip \
+              $EXTRA_ARGS \
+              --output-dir dist/
+        if: ${{ !matrix.settings.docker }}
+        shell: bash
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lancedb-nonlto-${{ matrix.settings.target }}
+          path: nodejs/dist/*.node
+          if-no-files-found: error
+      # The generic files are the same in all distros so we just pick
+      # one to do the upload.
+      - name: Make generic artifacts
+        if: ${{ matrix.settings.target == 'aarch64-apple-darwin' }}
+        run: npm run tsc
+      - name: Upload Generic Artifacts
+        if: ${{ matrix.settings.target == 'aarch64-apple-darwin' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: nodejs-dist-nonlto
+          path: |
+            nodejs/dist/*
+            !nodejs/dist/*.node
+
+  # ===========================================================================
+  #  Non-LTO Test
+  # ===========================================================================
+
+  test-nonlto:
+    name: "Test: ${{ matrix.settings.target }} - node@${{ matrix.node }}"
+    needs:
+      - build-nonlto
+    strategy:
+      fail-fast: false
+      matrix:
+        settings:
+          # TODO: Get tests passing on Windows (failing from test tmpdir issue)
+          # - host: windows-latest
+          #   target: x86_64-pc-windows-msvc
+          - host: macos-latest
+            target: aarch64-apple-darwin
+          - target: x86_64-unknown-linux-gnu
+            host: ubuntu-latest
+          - target: aarch64-unknown-linux-gnu
+            host: ubuntu-24.04-arm
+        node:
+          - '20'
+    runs-on: ${{ matrix.settings.host }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: nodejs
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+          cache-dependency-path: nodejs/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: lancedb-nonlto-${{ matrix.settings.target }}
+          path: nodejs/dist/
+      - uses: actions/download-artifact@v4
+        with:
+          name: nodejs-dist-nonlto
+          path: nodejs/dist
+      - name: List packages
+        run: ls -R dist
+      - name: Move built files
+        run: cp dist/native.d.ts dist/native.js dist/*.node lancedb/
+      - name: Test bindings
+        run: npm test
+
+  # ===========================================================================
+  #  Non-LTO Publish
+  # ===========================================================================
+
+  publish-nonlto:
+    name: Publish (Non-LTO)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+        working-directory: nodejs
+    needs:
+      - test-nonlto
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: nodejs/package-lock.json
+          registry-url: "https://registry.npmjs.org"
+      - name: Install dependencies
+        run: npm ci
+      - uses: actions/download-artifact@v4
+        with:
+          name: nodejs-dist-nonlto
+          path: nodejs/dist
+      - uses: actions/download-artifact@v4
+        name: Download arch-specific binaries
+        with:
+          pattern: lancedb-nonlto-*
+          path: nodejs/nodejs-artifacts
+          merge-multiple: true
       - name: Display structure of downloaded files
         run: find dist && find nodejs-artifacts
       - name: Move artifacts
@@ -355,12 +677,8 @@ jobs:
             NPM_TAG="nightly"
             DRY_RUN=false
           elif [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-            VERSION="$BASE_VERSION"
-            if [[ "$VERSION" == *-* ]]; then
-              NPM_TAG="preview"
-            else
-              NPM_TAG="latest"
-            fi
+            VERSION="${BASE_VERSION}-nonlto"
+            NPM_TAG="nonlto"
             DRY_RUN=false
           else
             VERSION="$BASE_VERSION"
@@ -372,8 +690,8 @@ jobs:
           echo "npm_tag=$NPM_TAG" >> $GITHUB_OUTPUT
           echo "dry_run=$DRY_RUN" >> $GITHUB_OUTPUT
           echo "Publishing version: $VERSION with tag: $NPM_TAG (dry_run: $DRY_RUN)"
-      - name: Update version for nightly
-        if: steps.versioning.outputs.npm_tag == 'nightly'
+      - name: Update package versions
+        if: steps.versioning.outputs.dry_run == 'false'
         run: |
           node << 'EOF'
             const fs = require('fs');
@@ -411,11 +729,16 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  # ===========================================================================
+  #  Failure Reporting
+  # ===========================================================================
+
   report-failure:
     name: Report Workflow Failure
     runs-on: ubuntu-latest
-    needs: [build-lancedb, test-lancedb, publish]
-    if: always() && failure() && startsWith(github.ref, 'refs/tags/v')
+    needs: [build-lto, test-lto, publish-lto, build-nonlto, test-nonlto, publish-nonlto]
+    if: always() && failure()
     permissions:
       contents: read
       issues: write
