@@ -445,7 +445,7 @@ export abstract class Table {
    * @param {number | string} version The version to checkout, could be version number or tag
    * @example
    * ```typescript
-   * import * as lancedb from "@lancedb/lancedb"
+   * import * as lancedb from "@delta-ai/lancedb"
    * const db = await lancedb.connect("./.lancedb");
    * const table = await db.createTable("my_table", [
    *   { vector: [1.1, 0.9], type: "vector" },

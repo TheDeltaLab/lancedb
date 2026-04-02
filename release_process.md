@@ -1,7 +1,7 @@
 # Release process
 
 There are three packages we release: the `lancedb` Rust crate, and the Node.js
-`@lancedb/lancedb` npm package, plus the legacy `vectordb` package.
+`@delta-ai/lancedb` npm package, plus the legacy `vectordb` package.
 
 ## Preview releases
 

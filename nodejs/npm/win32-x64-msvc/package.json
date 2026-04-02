@@ -1,5 +1,5 @@
 {
-	"name": "@thedeltalab/lancedb-win32-x64-msvc",
+	"name": "@delta-ai/lancedb-win32-x64-msvc",
 	"version": "0.1.0",
 	"os": [
 		"win32"
@@ -17,6 +17,6 @@
 	},
 	"repository": {
 		"type": "git",
-		"url": "https://github.com/lancedb/lancedb"
+		"url": "https://github.com/TheDeltaLab/lancedb"
 	}
 }

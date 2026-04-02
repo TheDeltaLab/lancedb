@@ -6,13 +6,13 @@ import {
 // SPDX-FileCopyrightText: Copyright The LanceDB Authors
 import { expect, test } from "@jest/globals";
 // --8<-- [start:imports]
-import * as lancedb from "@lancedb/lancedb";
+import * as lancedb from "@delta-ai/lancedb";
 import {
   LanceSchema,
   TextEmbeddingFunction,
   getRegistry,
   register,
-} from "@lancedb/lancedb/embedding";
+} from "@delta-ai/lancedb/embedding";
 // --8<-- [end:imports]
 import { withTempDirectory } from "./util.ts";
 

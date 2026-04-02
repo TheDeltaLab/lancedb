@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright The LanceDB Authors
 
 import { expect, test } from "@jest/globals";
-import * as lancedb from "@lancedb/lancedb";
+import * as lancedb from "@delta-ai/lancedb";
 
 test("basic upsert", async () => {
   const db = await lancedb.connect("memory://");

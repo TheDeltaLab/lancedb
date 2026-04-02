@@ -2,10 +2,10 @@
 // SPDX-FileCopyrightText: Copyright The LanceDB Authors
 import { expect, test } from "@jest/globals";
 // --8<-- [start:imports]
-import * as lancedb from "@lancedb/lancedb";
-import "@lancedb/lancedb/embedding/openai";
-import { LanceSchema, getRegistry, register } from "@lancedb/lancedb/embedding";
-import { EmbeddingFunction } from "@lancedb/lancedb/embedding";
+import * as lancedb from "@delta-ai/lancedb";
+import "@delta-ai/lancedb/embedding/openai";
+import { LanceSchema, getRegistry, register } from "@delta-ai/lancedb/embedding";
+import { EmbeddingFunction } from "@delta-ai/lancedb/embedding";
 import { type Float, Float32, Utf8 } from "apache-arrow";
 // --8<-- [end:imports]
 import { withTempDirectory } from "./util.ts";
