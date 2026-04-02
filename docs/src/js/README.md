@@ -1,4 +1,4 @@
-**@thedeltalab/lancedb** • [**Docs**](globals.md)
+**@delta-ai/lancedb** • [**Docs**](globals.md)
 
 ***
 
