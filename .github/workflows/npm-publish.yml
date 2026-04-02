@@ -156,18 +156,9 @@ jobs:
         with:
           toolchain: stable
           targets: ${{ matrix.settings.target }}
-      - name: Install sccache
+      - name: Setup sccache
         if: ${{ !matrix.settings.docker }}
-        run: |
-          SCCACHE_VERSION="v0.10.0"
-          if [[ "$RUNNER_OS" == "macOS" ]]; then
-            ARCH="aarch64-apple-darwin"
-          else
-            ARCH="x86_64-unknown-linux-musl"
-          fi
-          curl -fsSL "https://github.com/mozilla/sccache/releases/download/${SCCACHE_VERSION}/sccache-${SCCACHE_VERSION}-${ARCH}.tar.gz" \
-            | tar xz --strip-components=1 -C /usr/local/bin/ "sccache-${SCCACHE_VERSION}-${ARCH}/sccache"
-        working-directory: .
+        uses: mozilla-actions/sccache-action@v0.0.6
       - name: Download sccache for Docker
         if: ${{ matrix.settings.docker }}
         run: |
@@ -207,9 +198,9 @@ jobs:
             -e SCCACHE_GHA_ENABLED=true
           run: |
             set -e
-            # Start sccache server first, then set RUSTC_WRAPPER. This avoids
-            # the "Server startup failed" error that occurs when cargo metadata
-            # triggers a cold sccache start via RUSTC_WRAPPER.
+            # Start sccache server explicitly before setting RUSTC_WRAPPER.
+            # This avoids cargo metadata's rustc -vV probe triggering a cold
+            # sccache start that may fail.
             sccache --start-server
             export RUSTC_WRAPPER=sccache
             export CARGO_INCREMENTAL=0
@@ -225,7 +216,10 @@ jobs:
             sccache --show-stats
       - name: Build
         run: |
-          # Start sccache server first, then set RUSTC_WRAPPER
+          # Unset RUSTC_WRAPPER (set globally by sccache-action) so that
+          # cargo metadata's rustc -vV probe does not trigger a sccache
+          # cold start. Start the server explicitly, then re-enable wrapper.
+          unset RUSTC_WRAPPER
           sccache --start-server
           export RUSTC_WRAPPER=sccache
           ${{ matrix.settings.pre_build }}
@@ -238,8 +232,6 @@ jobs:
               --output-dir dist/
         if: ${{ !matrix.settings.docker }}
         shell: bash
-        env:
-          SCCACHE_GHA_ENABLED: "true"
       - name: Show sccache stats
         if: ${{ always() && !matrix.settings.docker }}
         run: sccache --show-stats
@@ -426,18 +418,9 @@ jobs:
         with:
           toolchain: stable
           targets: ${{ matrix.settings.target }}
-      - name: Install sccache
+      - name: Setup sccache
         if: ${{ !matrix.settings.docker }}
-        run: |
-          SCCACHE_VERSION="v0.10.0"
-          if [[ "$RUNNER_OS" == "macOS" ]]; then
-            ARCH="aarch64-apple-darwin"
-          else
-            ARCH="x86_64-unknown-linux-musl"
-          fi
-          curl -fsSL "https://github.com/mozilla/sccache/releases/download/${SCCACHE_VERSION}/sccache-${SCCACHE_VERSION}-${ARCH}.tar.gz" \
-            | tar xz --strip-components=1 -C /usr/local/bin/ "sccache-${SCCACHE_VERSION}-${ARCH}/sccache"
-        working-directory: .
+        uses: mozilla-actions/sccache-action@v0.0.6
       - name: Download sccache for Docker
         if: ${{ matrix.settings.docker }}
         run: |
@@ -492,7 +475,10 @@ jobs:
             sccache --show-stats
       - name: Build
         run: |
-          # Start sccache server first, then set RUSTC_WRAPPER
+          # Unset RUSTC_WRAPPER (set globally by sccache-action) so that
+          # cargo metadata's rustc -vV probe does not trigger a sccache
+          # cold start. Start the server explicitly, then re-enable wrapper.
+          unset RUSTC_WRAPPER
           sccache --start-server
           export RUSTC_WRAPPER=sccache
           ${{ matrix.settings.pre_build }}
@@ -505,8 +491,6 @@ jobs:
               --output-dir dist/
         if: ${{ !matrix.settings.docker }}
         shell: bash
-        env:
-          SCCACHE_GHA_ENABLED: "true"
       - name: Show sccache stats
         if: ${{ always() && !matrix.settings.docker }}
         run: sccache --show-stats
