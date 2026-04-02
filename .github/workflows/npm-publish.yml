@@ -3,6 +3,9 @@ name: NPM Publish
 env:
   MACOSX_DEPLOYMENT_TARGET: '10.13'
   CARGO_INCREMENTAL: '0'
+  SCCACHE_GHA_ENABLED: "true"
+  RUSTC_WRAPPER: "sccache"
+  CARGO_BUILD_TIMINGS: "1"
 
 permissions:
   contents: write
@@ -193,6 +196,9 @@ jobs:
         with:
           toolchain: stable
           targets: ${{ matrix.settings.target }}
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@v0.0.9
+        if: ${{ !matrix.settings.docker }}
       - name: Cache cargo
         uses: actions/cache@v4
         with:
@@ -202,7 +208,9 @@ jobs:
             ~/.cargo/git/db/
             .cargo-cache
             target/
-          key: nodejs-${{ matrix.settings.target }}-cargo-${{ matrix.settings.host }}
+          key: nodejs-${{ matrix.settings.target }}-cargo-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            nodejs-${{ matrix.settings.target }}-cargo-
       - name: Install dependencies
         run: npm ci
       - name: Install Zig
@@ -223,9 +231,17 @@ jobs:
           options: "--user 0:0 -v ${{ github.workspace }}/.cargo-cache/git/db:/usr/local/cargo/git/db \
                     -v ${{ github.workspace }}/.cargo/registry/cache:/usr/local/cargo/registry/cache \
                     -v ${{ github.workspace }}/.cargo/registry/index:/usr/local/cargo/registry/index \
-                    -v ${{ github.workspace }}:/build -w /build/nodejs"
+                    -v ${{ github.workspace }}:/build -w /build/nodejs \
+                    -e ACTIONS_CACHE_URL -e ACTIONS_RUNTIME_TOKEN \
+                    -e SCCACHE_GHA_ENABLED -e RUSTC_WRAPPER \
+                    -e CARGO_BUILD_TIMINGS"
           run: |
             set -e
+            echo "::group::Install sccache"
+            curl -fsSL https://github.com/mozilla/sccache/releases/download/v0.9.1/sccache-v0.9.1-x86_64-unknown-linux-musl.tar.gz \
+              | tar xz -C /usr/local/bin --strip-components=1 sccache-v0.9.1-x86_64-unknown-linux-musl/sccache
+            chmod +x /usr/local/bin/sccache
+            echo "::endgroup::"
             ${{ matrix.settings.pre_build }}
             npx napi build --platform --release \
               --features ${{ matrix.settings.features }} \
@@ -234,6 +250,9 @@ jobs:
               --js ../lancedb/native.js \
               --strip \
               --output-dir dist/
+            echo "::group::sccache stats"
+            sccache --show-stats
+            echo "::endgroup::"
       - name: Build
         run: |
           ${{ matrix.settings.pre_build }}
@@ -247,6 +266,17 @@ jobs:
               --output-dir dist/
         if: ${{ !matrix.settings.docker }}
         shell: bash
+      - name: Show sccache stats
+        if: always()
+        shell: bash
+        run: sccache --show-stats || true
+      - name: Upload cargo timings
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cargo-timing-${{ matrix.settings.target }}
+          path: target/cargo-timings/cargo-timing*.html
+          if-no-files-found: ignore
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
