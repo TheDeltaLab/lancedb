@@ -173,6 +173,7 @@ jobs:
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
+            .sccache/
             target/
           key: nodejs-lto-${{ matrix.settings.target }}-cargo-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
@@ -190,17 +191,12 @@ jobs:
             -v ${{ github.workspace }}/.cargo/registry/cache:/usr/local/cargo/registry/cache
             -v ${{ github.workspace }}/.cargo/registry/index:/usr/local/cargo/registry/index
             -v /usr/local/bin/sccache:/usr/local/bin/sccache
+            -v ${{ github.workspace }}/.sccache:/sccache
             -v ${{ github.workspace }}:/build
             -w /build/nodejs
-            -e ACTIONS_CACHE_URL
-            -e ACTIONS_RESULTS_URL
-            -e ACTIONS_RUNTIME_TOKEN
-            -e SCCACHE_GHA_ENABLED=true
+            -e SCCACHE_DIR=/sccache
           run: |
             set -e
-            # Start sccache server explicitly before setting RUSTC_WRAPPER.
-            # This avoids cargo metadata's rustc -vV probe triggering a cold
-            # sccache start that may fail.
             sccache --start-server
             export RUSTC_WRAPPER=sccache
             export CARGO_INCREMENTAL=0
@@ -435,6 +431,7 @@ jobs:
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
+            .sccache/
             target/
           key: nodejs-${{ matrix.settings.target }}-cargo-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
@@ -452,15 +449,12 @@ jobs:
             -v ${{ github.workspace }}/.cargo/registry/cache:/usr/local/cargo/registry/cache
             -v ${{ github.workspace }}/.cargo/registry/index:/usr/local/cargo/registry/index
             -v /usr/local/bin/sccache:/usr/local/bin/sccache
+            -v ${{ github.workspace }}/.sccache:/sccache
             -v ${{ github.workspace }}:/build
             -w /build/nodejs
-            -e ACTIONS_CACHE_URL
-            -e ACTIONS_RESULTS_URL
-            -e ACTIONS_RUNTIME_TOKEN
-            -e SCCACHE_GHA_ENABLED=true
+            -e SCCACHE_DIR=/sccache
           run: |
             set -e
-            # Start sccache server first, then set RUSTC_WRAPPER
             sccache --start-server
             export RUSTC_WRAPPER=sccache
             export CARGO_PROFILE_RELEASE_LTO=false
