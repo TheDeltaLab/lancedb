@@ -320,7 +320,12 @@ jobs:
           npm config set provenance true
           ARGS="--access public"
           if [[ $DRY_RUN == "true" ]]; then
-            ARGS="$ARGS --dry-run"
+            # Use npm pack instead of npm publish --dry-run to avoid
+            # triggering prepublishOnly (napi prepublish), which creates
+            # a real GitHub Release even during dry-run.
+            echo "Dry run: running npm pack to verify package contents"
+            npm pack $ARGS
+            exit 0
           fi
           VERSION=$(node -p "require('./package.json').version")
           if [[ $VERSION == *-* ]]; then
