@@ -432,6 +432,7 @@ impl Table {
         let prune_stats = inner
             .optimize(OptimizeAction::Prune {
                 older_than,
+                before_timestamp: None,
                 delete_unverified,
                 error_if_tagged_old_versions: None,
             })

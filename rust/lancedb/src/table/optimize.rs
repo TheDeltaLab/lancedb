@@ -8,6 +8,7 @@
 
 use std::sync::Arc;
 
+use chrono::Utc;
 use lance::dataset::cleanup::RemovalStats;
 use lance::dataset::optimize::{CompactionMetrics, IndexRemapperOptions, compact_files};
 use lance_index::DatasetIndexExt;
@@ -61,7 +62,16 @@ pub enum OptimizeAction {
     /// Once a version is pruned it can no longer be checked out.
     Prune {
         /// The duration of time to keep versions of the dataset.
+        ///
+        /// If both `older_than` and `before_timestamp` are provided, `older_than` takes precedence.
+        /// If neither is provided, defaults to 7 days.
         older_than: Option<Duration>,
+        /// An absolute UTC timestamp.  Versions created before this timestamp will be removed.
+        ///
+        /// This is an alternative to `older_than`.  At execution time the duration
+        /// `Utc::now() - before_timestamp` is computed and used as `older_than`.  If `older_than`
+        /// is also set, it takes precedence over this field.
+        before_timestamp: Option<chrono::DateTime<Utc>>,
         /// Because they may be part of an in-progress transaction, files newer than 7 days old are not deleted by default.
         /// If you are sure that there are no in-progress transactions, then you can set this to True to delete all files older than `older_than`.
         ///
@@ -69,6 +79,9 @@ pub enum OptimizeAction {
         /// currently working on this dataset.  Otherwise the dataset could be put into a corrupted state.
         delete_unverified: Option<bool>,
         /// If true, an error will be returned if there are any old versions that are still tagged.
+        ///
+        /// Defaults to `false` so that tagged versions are silently skipped rather than causing an
+        /// error.
         error_if_tagged_old_versions: Option<bool>,
     },
     /// Optimize the indices
@@ -192,15 +205,22 @@ pub(crate) async fn execute_optimize(
         }
         OptimizeAction::Prune {
             older_than,
+            before_timestamp,
             delete_unverified,
             error_if_tagged_old_versions,
         } => {
+            // Resolve the effective cutoff duration.  `older_than` takes precedence; if it is not
+            // set but `before_timestamp` is, derive the duration as `now - before_timestamp`.
+            let effective_older_than = older_than
+                .or_else(|| before_timestamp.map(|ts| Utc::now().signed_duration_since(ts)))
+                .unwrap_or(Duration::try_days(7).expect("valid delta"));
             stats.prune = Some(
                 cleanup_old_versions(
                     table,
-                    older_than.unwrap_or(Duration::try_days(7).expect("valid delta")),
+                    effective_older_than,
                     delete_unverified,
-                    error_if_tagged_old_versions,
+                    // Default to false so tagged versions are silently skipped.
+                    error_if_tagged_old_versions.or(Some(false)),
                 )
                 .await?,
             );
@@ -342,6 +362,7 @@ mod tests {
         let stats = table
             .optimize(OptimizeAction::Prune {
                 older_than: Some(chrono::Duration::try_days(0).unwrap()),
+                before_timestamp: None,
                 delete_unverified: Some(true),
                 error_if_tagged_old_versions: None,
             })
@@ -693,6 +714,7 @@ mod tests {
     })]
     #[case::prune(OptimizeAction::Prune {
         older_than: Some(chrono::Duration::try_days(0).unwrap()),
+        before_timestamp: None,
         delete_unverified: Some(true),
         error_if_tagged_old_versions: None,
     })]
@@ -727,5 +749,57 @@ mod tests {
             "Expected error message about checked out table, got: {}",
             err_msg
         );
+    }
+
+    #[tokio::test]
+    async fn test_prune_before_timestamp() {
+        let conn = connect("memory://").execute().await.unwrap();
+
+        let schema = Arc::new(Schema::new(vec![Field::new("i", DataType::Int32, false)]));
+        let batch = RecordBatch::try_new(
+            schema.clone(),
+            vec![Arc::new(Int32Array::from_iter_values(0..10))],
+        )
+        .unwrap();
+
+        let table = conn
+            .create_table("test_prune_before_timestamp", batch)
+            .execute()
+            .await
+            .unwrap();
+
+        // Create some extra versions
+        for i in 0..3 {
+            let batch = RecordBatch::try_new(
+                schema.clone(),
+                vec![Arc::new(Int32Array::from_iter_values(
+                    (i * 10 + 10)..((i + 1) * 10 + 10),
+                ))],
+            )
+            .unwrap();
+            table.add(batch).execute().await.unwrap();
+        }
+
+        let versions_before = table.list_versions().await.unwrap();
+        assert!(versions_before.len() > 1);
+
+        // Use before_timestamp slightly in the future so all current versions are eligible.
+        let cutoff = chrono::Utc::now() + chrono::Duration::try_seconds(1).unwrap();
+        let stats = table
+            .optimize(OptimizeAction::Prune {
+                older_than: None,
+                before_timestamp: Some(cutoff),
+                delete_unverified: Some(true),
+                error_if_tagged_old_versions: None,
+            })
+            .await
+            .unwrap();
+
+        assert!(stats.prune.is_some());
+        let prune_stats = stats.prune.unwrap();
+        assert!(prune_stats.old_versions > 0);
+
+        // Data must still be intact
+        assert_eq!(table.count_rows(None).await.unwrap(), 40);
     }
 }
