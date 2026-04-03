@@ -115,4 +115,25 @@ describe("rerankers", function () {
     expect(keys).not.toContain("_distance");
     expect(keys).toContain("_relevance_score");
   });
+
+  it("will query with RRFReranker returnScore='all' and select", async function () {
+    const reranker = await RRFReranker.create({ k: 60, returnScore: "all" });
+    const result = await table
+      .query()
+      .nearestTo([0.1, 0.1])
+      .fullTextSearch("dog")
+      .rerank(reranker)
+      .select(["text"])
+      .limit(5)
+      .toArray();
+
+    expect(result).toHaveLength(2);
+    const keys = Object.keys(result[0] as object);
+    expect(keys).toContain("text");
+    expect(keys).toContain("_distance");
+    expect(keys).toContain("_score");
+    expect(keys).toContain("_relevance_score");
+    // vector column is not in select, should not be present
+    expect(keys).not.toContain("vector");
+  });
 });
