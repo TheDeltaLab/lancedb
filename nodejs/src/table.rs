@@ -3,6 +3,7 @@
 
 use std::collections::HashMap;
 
+use chrono::{DateTime, TimeZone, Utc};
 use lancedb::ipc::{ipc_file_to_batches, ipc_file_to_schema};
 use lancedb::table::{
     AddDataMode, ColumnAlteration as LanceColumnAlteration, Duration, NewColumnTransform,
@@ -405,6 +406,7 @@ impl Table {
         &self,
         older_than_ms: Option<i64>,
         delete_unverified: Option<bool>,
+        before_timestamp_ms: Option<i64>,
     ) -> napi::Result<OptimizeStats> {
         let inner = self.inner_ref()?;
 
@@ -420,6 +422,15 @@ impl Table {
             None
         };
 
+        let before_timestamp: Option<DateTime<Utc>> =
+            if let Some(ms) = before_timestamp_ms {
+                Some(Utc.timestamp_millis_opt(ms).single().ok_or_else(|| {
+                    napi::Error::from_reason("before_timestamp_ms is out of range")
+                })?)
+            } else {
+                None
+            };
+
         let compaction_stats = inner
             .optimize(OptimizeAction::Compact {
                 options: lancedb::table::CompactionOptions::default(),
@@ -432,7 +443,7 @@ impl Table {
         let prune_stats = inner
             .optimize(OptimizeAction::Prune {
                 older_than,
-                before_timestamp: None,
+                before_timestamp,
                 delete_unverified,
                 error_if_tagged_old_versions: None,
             })

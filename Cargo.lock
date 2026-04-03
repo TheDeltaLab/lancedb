@@ -4700,6 +4700,7 @@ dependencies = [
  "async-trait",
  "aws-lc-rs",
  "aws-lc-sys",
+ "chrono",
  "env_logger",
  "futures",
  "half",

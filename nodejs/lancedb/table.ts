@@ -88,6 +88,16 @@ export interface OptimizeOptions {
    */
   cleanupOlderThan: Date;
   /**
+   * If set, all versions created before this absolute timestamp will be removed.
+   * This is an alternative to {@link cleanupOlderThan}.  If both are set,
+   * `cleanupOlderThan` takes precedence (enforced by the underlying implementation).
+   * @example
+   * // Delete all versions created before a specific point in time
+   * const cutoff = new Date("2025-01-01T00:00:00Z");
+   * tbl.optimize({cleanupBeforeTimestamp: cutoff});
+   */
+  cleanupBeforeTimestamp: Date;
+  /**
    * Because they may be part of an in-progress transaction, files newer than
    * 7 days old are not deleted by default. If you are sure that there are no
    * in-progress transactions, then you can set this to true to delete all
@@ -914,9 +924,17 @@ export class LocalTable extends Table {
       cleanupOlderThanMs =
         new Date().getTime() - options.cleanupOlderThan.getTime();
     }
+    let cleanupBeforeTimestampMs;
+    if (
+      options?.cleanupBeforeTimestamp !== undefined &&
+      options?.cleanupBeforeTimestamp !== null
+    ) {
+      cleanupBeforeTimestampMs = options.cleanupBeforeTimestamp.getTime();
+    }
     return await this.inner.optimize(
       cleanupOlderThanMs,
       options?.deleteUnverified,
+      cleanupBeforeTimestampMs,
     );
   }
 

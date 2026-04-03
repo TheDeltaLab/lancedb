@@ -191,7 +191,8 @@ pub(crate) async fn execute_optimize(
                     table,
                     Duration::try_days(7).expect("valid delta"),
                     None,
-                    None,
+                    // Default to false so tagged versions are silently skipped.
+                    Some(false),
                 )
                 .await?,
             );
@@ -801,5 +802,58 @@ mod tests {
 
         // Data must still be intact
         assert_eq!(table.count_rows(None).await.unwrap(), 40);
+    }
+
+    #[tokio::test]
+    async fn test_prune_skips_tagged_versions_silently() {
+        let conn = connect("memory://").execute().await.unwrap();
+
+        let schema = Arc::new(Schema::new(vec![Field::new("i", DataType::Int32, false)]));
+        let batch = RecordBatch::try_new(
+            schema.clone(),
+            vec![Arc::new(Int32Array::from_iter_values(0..10))],
+        )
+        .unwrap();
+
+        let table = conn
+            .create_table("test_prune_tagged_skip", batch)
+            .execute()
+            .await
+            .unwrap();
+
+        // Add more data to create version 2
+        let batch2 = RecordBatch::try_new(
+            schema.clone(),
+            vec![Arc::new(Int32Array::from_iter_values(10..20))],
+        )
+        .unwrap();
+        table.add(batch2).execute().await.unwrap();
+
+        // Tag version 1 so it would normally block pruning
+        let mut tags = table.tags().await.unwrap();
+        tags.create("my-tag", 1).await.unwrap();
+
+        // Prune with older_than = 0 (all non-current versions are eligible).
+        // error_if_tagged_old_versions defaults to false, so the tagged version
+        // should be skipped silently instead of causing an error.
+        let stats = table
+            .optimize(OptimizeAction::Prune {
+                older_than: Some(chrono::Duration::try_days(0).unwrap()),
+                before_timestamp: None,
+                delete_unverified: Some(true),
+                error_if_tagged_old_versions: None,
+            })
+            .await
+            .unwrap(); // must NOT error
+
+        assert!(stats.prune.is_some());
+
+        // The tagged version 1 is preserved; verify the tag still resolves
+        let tags = table.tags().await.unwrap();
+        let tagged_version = tags.get_version("my-tag").await.unwrap();
+        assert_eq!(tagged_version, 1);
+
+        // Current data must still be intact
+        assert_eq!(table.count_rows(None).await.unwrap(), 20);
     }
 }

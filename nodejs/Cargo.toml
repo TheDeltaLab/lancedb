@@ -18,6 +18,7 @@ arrow-array.workspace = true
 arrow-buffer = "57.2"
 half.workspace = true
 arrow-schema.workspace = true
+chrono.workspace = true
 env_logger.workspace = true
 futures.workspace = true
 lancedb = { path = "../rust/lancedb", default-features = false }
