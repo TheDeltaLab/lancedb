@@ -20,6 +20,7 @@ use lance_index::vector::DIST_COL;
 
 use crate::DistanceType;
 use crate::error::{Error, Result};
+use crate::rerankers::RELEVANCE_SCORE;
 use crate::rerankers::rrf::RRFReranker;
 use crate::rerankers::{NormalizeMethod, Reranker, check_reranker_result};
 use crate::table::BaseTable;
@@ -1192,12 +1193,23 @@ impl VectorQuery {
     ) -> Result<SendableRecordBatchStream> {
         let max_batch_length = options.max_batch_length as usize;
         let internal_options = options.without_output_batch_length_limit();
+
+        // Save the original select so we can apply it after reranking.
+        // Sub-queries need all columns for the reranker to work correctly.
+        let original_select = self.request.base.select.clone();
+
         // clone query and specify we want to include row IDs, which can be needed for reranking
         let mut fts_query = Query::new(self.parent.clone());
         fts_query.request = self.request.base.clone();
         fts_query = fts_query.with_row_id();
 
         let mut vector_query = self.clone().with_row_id();
+
+        // Clear user select on sub-queries so the reranker sees all columns
+        if matches!(original_select, Select::Columns(_)) {
+            fts_query.request.select = Select::All;
+            vector_query.request.base.select = Select::All;
+        }
 
         vector_query.request.base.full_text_search = None;
         let (fts_results, vec_results) = try_join!(
@@ -1255,6 +1267,28 @@ impl VectorQuery {
 
         if !self.request.base.with_row_id {
             results = results.drop_column(ROW_ID)?;
+        }
+
+        // Apply the original select projection after reranking, keeping score columns
+        if let Select::Columns(ref columns) = original_select {
+            let schema = results.schema();
+            let score_cols = [DIST_COL, SCORE_COL, RELEVANCE_SCORE];
+            let indices: Vec<usize> = schema
+                .fields()
+                .iter()
+                .enumerate()
+                .filter_map(|(i, f)| {
+                    let name = f.name().as_str();
+                    if columns.iter().any(|c| c == name) || score_cols.contains(&name) {
+                        Some(i)
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            if indices.len() < schema.fields().len() {
+                results = results.project(&indices)?;
+            }
         }
 
         Ok(single_batch_stream(results, max_batch_length))
@@ -2177,6 +2211,102 @@ mod tests {
             .try_collect::<Vec<_>>()
             .await
             .unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_hybrid_search_with_select_and_return_score_all() {
+        use crate::rerankers::ReturnScore;
+        use crate::rerankers::rrf::RRFReranker;
+
+        let tmp_dir = tempdir().unwrap();
+        let dataset_path = tmp_dir.path();
+        let conn = connect(dataset_path.to_str().unwrap())
+            .execute()
+            .await
+            .unwrap();
+
+        let dims = 2;
+        let schema = Arc::new(ArrowSchema::new(vec![
+            ArrowField::new("text", DataType::Utf8, false),
+            ArrowField::new(
+                "vector",
+                DataType::FixedSizeList(
+                    Arc::new(ArrowField::new("item", DataType::Float32, true)),
+                    dims,
+                ),
+                false,
+            ),
+        ]));
+
+        let text = StringArray::from(vec!["dog", "cat"]);
+        let vectors = vec![
+            Some(vec![Some(0.1), Some(0.1)]),
+            Some(vec![Some(0.2), Some(0.2)]),
+        ];
+        let vector = FixedSizeListArray::from_iter_primitive::<Float32Type, _, _>(vectors, dims);
+
+        let record_batch =
+            RecordBatch::try_new(schema.clone(), vec![Arc::new(text), Arc::new(vector)]).unwrap();
+        let table = conn
+            .create_table("my_table", record_batch)
+            .execute()
+            .await
+            .unwrap();
+
+        table
+            .create_index(&["text"], crate::index::Index::FTS(Default::default()))
+            .replace(true)
+            .execute()
+            .await
+            .unwrap();
+
+        let fts_query = FullTextSearchQuery::new("dog".to_string());
+        let reranker = RRFReranker::new_with_score(60.0, ReturnScore::All);
+        let results = table
+            .query()
+            .full_text_search(fts_query)
+            .select(Select::columns(&["text"]))
+            .limit(5)
+            .nearest_to(&[0.1, 0.1])
+            .unwrap()
+            .rerank(Arc::new(reranker))
+            .execute()
+            .await
+            .unwrap()
+            .try_collect::<Vec<_>>()
+            .await
+            .unwrap();
+
+        assert!(!results.is_empty());
+        let batch = concat_batches(&results[0].schema(), results.iter()).unwrap();
+
+        let schema = batch.schema();
+        let field_names: Vec<&str> = schema.fields().iter().map(|f| f.name().as_str()).collect();
+        assert!(
+            field_names.contains(&"text"),
+            "missing text: {:?}",
+            field_names
+        );
+        assert!(
+            field_names.contains(&"_distance"),
+            "missing _distance: {:?}",
+            field_names
+        );
+        assert!(
+            field_names.contains(&"_score"),
+            "missing _score: {:?}",
+            field_names
+        );
+        assert!(
+            field_names.contains(&"_relevance_score"),
+            "missing _relevance_score: {:?}",
+            field_names
+        );
+        assert!(
+            !field_names.contains(&"vector"),
+            "vector should not be present: {:?}",
+            field_names
+        );
     }
 
     #[tokio::test]
