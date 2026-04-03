@@ -20,7 +20,6 @@ use lance_index::vector::DIST_COL;
 
 use crate::DistanceType;
 use crate::error::{Error, Result};
-use crate::rerankers::RELEVANCE_SCORE;
 use crate::rerankers::rrf::RRFReranker;
 use crate::rerankers::{NormalizeMethod, Reranker, check_reranker_result};
 use crate::table::BaseTable;
@@ -1269,17 +1268,16 @@ impl VectorQuery {
             results = results.drop_column(ROW_ID)?;
         }
 
-        // Apply the original select projection after reranking, keeping score columns
+        // Apply the original select projection after reranking.
+        // Strictly follow user's select — score columns must be explicitly selected.
         if let Select::Columns(ref columns) = original_select {
             let schema = results.schema();
-            let score_cols = [DIST_COL, SCORE_COL, RELEVANCE_SCORE];
             let indices: Vec<usize> = schema
                 .fields()
                 .iter()
                 .enumerate()
                 .filter_map(|(i, f)| {
-                    let name = f.name().as_str();
-                    if columns.iter().any(|c| c == name) || score_cols.contains(&name) {
+                    if columns.iter().any(|c| c == f.name()) {
                         Some(i)
                     } else {
                         None
@@ -2265,7 +2263,12 @@ mod tests {
         let results = table
             .query()
             .full_text_search(fts_query)
-            .select(Select::columns(&["text"]))
+            .select(Select::columns(&[
+                "text",
+                "_distance",
+                "_score",
+                "_relevance_score",
+            ]))
             .limit(5)
             .nearest_to(&[0.1, 0.1])
             .unwrap()
@@ -2307,6 +2310,34 @@ mod tests {
             "vector should not be present: {:?}",
             field_names
         );
+
+        // When select does not include score columns, they should not appear
+        let fts_query2 = FullTextSearchQuery::new("dog".to_string());
+        let reranker2 = RRFReranker::new_with_score(60.0, ReturnScore::All);
+        let results2 = table
+            .query()
+            .full_text_search(fts_query2)
+            .select(Select::columns(&["text"]))
+            .limit(5)
+            .nearest_to(&[0.1, 0.1])
+            .unwrap()
+            .rerank(Arc::new(reranker2))
+            .execute()
+            .await
+            .unwrap()
+            .try_collect::<Vec<_>>()
+            .await
+            .unwrap();
+
+        assert!(!results2.is_empty());
+        let batch2 = concat_batches(&results2[0].schema(), results2.iter()).unwrap();
+        let schema2 = batch2.schema();
+        let field_names2: Vec<&str> = schema2.fields().iter().map(|f| f.name().as_str()).collect();
+        assert!(field_names2.contains(&"text"));
+        assert!(!field_names2.contains(&"_distance"));
+        assert!(!field_names2.contains(&"_score"));
+        assert!(!field_names2.contains(&"_relevance_score"));
+        assert!(!field_names2.contains(&"vector"));
     }
 
     #[tokio::test]

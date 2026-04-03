@@ -16,7 +16,7 @@ use crate::error::{Error, Result};
 pub mod rrf;
 
 /// column name for reranker relevance score
-pub(crate) const RELEVANCE_SCORE: &str = "_relevance_score";
+const RELEVANCE_SCORE: &str = "_relevance_score";
 
 /// Controls which scores are returned in the reranker output.
 ///
