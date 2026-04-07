@@ -79,7 +79,7 @@ use crate::index::waiter::wait_for_index;
 #[cfg(feature = "remote")]
 pub(crate) use add_data::PreprocessingOutput;
 pub use add_data::{AddDataBuilder, AddDataMode, AddResult, NaNVectorBehavior};
-pub use chrono::Duration;
+pub use chrono::{DateTime, Duration, Utc};
 pub use delete::DeleteResult;
 use futures::future::join_all;
 pub use lance::dataset::refs::{TagContents, Tags as LanceTags};
@@ -331,6 +331,44 @@ pub trait BaseTable: std::fmt::Display + std::fmt::Debug + Send + Sync {
             .ok_or_else(|| Error::InvalidInput {
                 message: format!("Version {} not found", version),
             })
+    }
+    /// Find the most recent version whose timestamp is at or before the given time.
+    ///
+    /// Uses binary search with [`Self::get_version_info`] to minimise the number of
+    /// version reads. Assumes version numbers are contiguous (1, 2, ..., N).
+    async fn get_version_by_time(&self, timestamp: DateTime<Utc>) -> Result<Version> {
+        let latest = self.version().await?;
+        let mut lo = 1u64;
+        let mut hi = latest;
+        let mut result: Option<Version> = None;
+
+        while lo <= hi {
+            let mid = lo + (hi - lo) / 2;
+            match self.get_version_info(mid).await {
+                Ok(v) => {
+                    if v.timestamp <= timestamp {
+                        result = Some(v);
+                        lo = mid + 1;
+                    } else {
+                        if mid == 0 {
+                            break;
+                        }
+                        hi = mid - 1;
+                    }
+                }
+                Err(_) => {
+                    // Version may not exist (gap after compaction), search lower half
+                    if mid == 0 {
+                        break;
+                    }
+                    hi = mid - 1;
+                }
+            }
+        }
+
+        result.ok_or_else(|| Error::InvalidInput {
+            message: format!("No version exists at or before {}", timestamp),
+        })
     }
     /// Get the table definition.
     async fn table_definition(&self) -> Result<TableDefinition>;
@@ -1113,6 +1151,27 @@ impl Table {
     /// ```
     pub async fn get_version_info(&self, version: u64) -> Result<Version> {
         self.inner.get_version_info(version).await
+    }
+
+    /// Find the most recent version whose timestamp is at or before the given time.
+    ///
+    /// Uses binary search over version numbers so that only O(log N) version
+    /// reads are required, making it efficient even with many versions stored
+    /// on remote object storage.
+    ///
+    /// ```
+    /// use lancedb::table::{DateTime, Utc};
+    /// use lancedb::Table;
+    ///
+    /// # async fn example(table: &Table) -> Result<(), Box<dyn std::error::Error>> {
+    /// let cutoff = Utc::now();
+    /// let version = table.get_version_by_time(cutoff).await?;
+    /// println!("Version {} at {:?}", version.version, version.timestamp);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn get_version_by_time(&self, timestamp: DateTime<Utc>) -> Result<Version> {
+        self.inner.get_version_by_time(timestamp).await
     }
 
     /// List all indices that have been created with [`Self::create_index`]
@@ -3943,6 +4002,58 @@ mod tests {
             .unwrap();
 
         let result = table.get_version_info(99999).await;
+        assert!(matches!(result.unwrap_err(), Error::InvalidInput { .. }));
+    }
+
+    #[tokio::test]
+    async fn test_get_version_by_time() {
+        let tmp_dir = tempdir().unwrap();
+        let uri = tmp_dir.path().to_str().unwrap();
+
+        let batch = make_test_batches();
+        let reader: Box<dyn RecordBatchReader + Send> = Box::new(RecordBatchIterator::new(
+            vec![Ok(batch.clone())],
+            batch.schema(),
+        ));
+
+        let conn = connect(uri).execute().await.unwrap();
+        let table = conn
+            .create_table("my_table", reader)
+            .execute()
+            .await
+            .unwrap();
+
+        let v1 = table.version().await.unwrap();
+        let v1_info = table.get_version_info(v1).await.unwrap();
+
+        // Add data to create v2
+        let batch2 = make_test_batches();
+        let reader2: Box<dyn RecordBatchReader + Send> = Box::new(RecordBatchIterator::new(
+            vec![Ok(batch2.clone())],
+            batch2.schema(),
+        ));
+        table.add(reader2).execute().await.unwrap();
+        let v2 = table.version().await.unwrap();
+        let v2_info = table.get_version_info(v2).await.unwrap();
+
+        // Query at v1's timestamp should return v1
+        let result = table.get_version_by_time(v1_info.timestamp).await.unwrap();
+        assert_eq!(result.version, v1);
+
+        // Query at v2's timestamp should return v2
+        let result = table.get_version_by_time(v2_info.timestamp).await.unwrap();
+        assert_eq!(result.version, v2);
+
+        // Query far in the future should return latest
+        let future = Utc::now() + chrono::Duration::days(365);
+        let result = table.get_version_by_time(future).await.unwrap();
+        assert_eq!(result.version, v2);
+
+        // Query far in the past should error
+        let past = DateTime::parse_from_rfc3339("2000-01-01T00:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let result = table.get_version_by_time(past).await;
         assert!(matches!(result.unwrap_err(), Error::InvalidInput { .. }));
     }
 }

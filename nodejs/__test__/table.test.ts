@@ -1578,6 +1578,37 @@ describe("when dealing with versioning", () => {
     // Non-existent version should throw
     await expect(table.getVersionInfo(99999)).rejects.toThrow();
   });
+
+  it("can get version by time", async () => {
+    const con = await connect(tmpDir.name);
+    const table = await con.createTable("vectors_by_time", [
+      { id: 1n, vector: [0.1, 0.2] },
+    ]);
+    const version1 = await table.version();
+    const info1 = await table.getVersionInfo(version1);
+
+    // Add data to create a new version
+    await table.add([{ id: 2n, vector: [0.3, 0.4] }]);
+    const version2 = await table.version();
+    const info2 = await table.getVersionInfo(version2);
+
+    // Exact v1 timestamp should return v1
+    const result1 = await table.getVersionByTime(info1.timestamp);
+    expect(result1.version).toBe(version1);
+
+    // Exact v2 timestamp should return v2
+    const result2 = await table.getVersionByTime(info2.timestamp);
+    expect(result2.version).toBe(version2);
+
+    // Far future should return latest
+    const futureResult = await table.getVersionByTime(new Date("2099-01-01"));
+    expect(futureResult.version).toBe(version2);
+
+    // Far past should throw
+    await expect(
+      table.getVersionByTime(new Date("2000-01-01")),
+    ).rejects.toThrow();
+  });
 });
 
 describe("when dealing with tags", () => {
