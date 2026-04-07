@@ -916,25 +916,12 @@ export class LocalTable extends Table {
   }
 
   async optimize(options?: Partial<OptimizeOptions>): Promise<OptimizeStats> {
-    let cleanupOlderThanMs;
-    if (
-      options?.cleanupOlderThan !== undefined &&
-      options?.cleanupOlderThan !== null
-    ) {
-      cleanupOlderThanMs =
-        new Date().getTime() - options.cleanupOlderThan.getTime();
-    }
-    let cleanupBeforeTimestampMs;
-    if (
-      options?.cleanupBeforeTimestamp !== undefined &&
-      options?.cleanupBeforeTimestamp !== null
-    ) {
-      cleanupBeforeTimestampMs = options.cleanupBeforeTimestamp.getTime();
-    }
     return await this.inner.optimize(
-      cleanupOlderThanMs,
+      options?.cleanupOlderThan != null
+        ? new Date().getTime() - options.cleanupOlderThan.getTime()
+        : undefined,
       options?.deleteUnverified,
-      cleanupBeforeTimestampMs,
+      options?.cleanupBeforeTimestamp?.getTime(),
     );
   }
 
