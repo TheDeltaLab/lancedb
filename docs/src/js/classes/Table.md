@@ -345,6 +345,42 @@ Drop an index from the table.
 
 ***
 
+### getVersionInfo()
+
+```ts
+abstract getVersionInfo(version): Promise<Version>
+```
+
+Get the information of a specific version
+
+Returns the version details including timestamp and metadata
+(row count, file sizes, etc.).
+
+#### Parameters
+
+* **version**: `number`
+    The version number to get information for
+
+#### Returns
+
+`Promise`&lt;[`Version`](../interfaces/Version.md)&gt;
+
+The version information
+
+#### Throws
+
+If the version does not exist
+
+#### Example
+
+```typescript
+const currentVersion = await table.version();
+const info = await table.getVersionInfo(currentVersion);
+console.log(info.version, info.timestamp, info.metadata);
+```
+
+***
+
 ### indexStats()
 
 ```ts
