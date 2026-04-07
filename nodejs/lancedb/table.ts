@@ -98,6 +98,14 @@ export interface OptimizeOptions {
    * dataset could be put into a corrupted state.
    */
   deleteUnverified: boolean;
+  /**
+   * If set to true, an error will be returned when there are tagged versions
+   * that are old enough to be cleaned up.
+   *
+   * By default this is false, which means tagged old versions are silently
+   * skipped during pruning.
+   */
+  errorIfTaggedOldVersions: boolean;
 }
 
 export interface Version {
@@ -944,6 +952,7 @@ export class LocalTable extends Table {
     return await this.inner.optimize(
       cleanupOlderThanMs,
       options?.deleteUnverified,
+      options?.errorIfTaggedOldVersions,
     );
   }
 

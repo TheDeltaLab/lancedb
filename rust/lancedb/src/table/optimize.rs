@@ -69,6 +69,7 @@ pub enum OptimizeAction {
         /// currently working on this dataset.  Otherwise the dataset could be put into a corrupted state.
         delete_unverified: Option<bool>,
         /// If true, an error will be returned if there are any old versions that are still tagged.
+        /// If not set, defaults to `false` (skip tagged versions silently).
         error_if_tagged_old_versions: Option<bool>,
     },
     /// Optimize the indices
@@ -123,6 +124,9 @@ pub(crate) async fn optimize_indices(table: &NativeTable, options: &OptimizeOpti
 ///   **WARNING**: This should only be set to true if you can guarantee that
 ///   no other process is currently working on this dataset.  Otherwise the
 ///   dataset could be put into a corrupted state.
+/// * `error_if_tagged_old_versions` - If set to `true`, an error will be
+///   returned when there are tagged versions that are old enough to be cleaned
+///   up. If `None` or `false`, tagged old versions are silently skipped.
 ///
 /// This calls into [lance::dataset::Dataset::cleanup_old_versions] and
 /// returns the result.
@@ -135,7 +139,11 @@ pub(crate) async fn cleanup_old_versions(
     table.dataset.ensure_mutable()?;
     let dataset = table.dataset.get().await?;
     Ok(dataset
-        .cleanup_old_versions(older_than, delete_unverified, error_if_tagged_old_versions)
+        .cleanup_old_versions(
+            older_than,
+            delete_unverified,
+            Some(error_if_tagged_old_versions.unwrap_or(false)),
+        )
         .await?)
 }
 
@@ -683,6 +691,74 @@ mod tests {
         assert_eq!(table.count_rows(None).await.unwrap(), 0);
         let current_schema = table.schema().await.unwrap();
         assert_eq!(current_schema, schema);
+    }
+
+    #[tokio::test]
+    async fn test_prune_skips_tagged_old_versions_by_default() {
+        let conn = connect("memory://").execute().await.unwrap();
+
+        let schema = Arc::new(Schema::new(vec![Field::new("i", DataType::Int32, false)]));
+        let batch = RecordBatch::try_new(
+            schema.clone(),
+            vec![Arc::new(Int32Array::from_iter_values(0..10))],
+        )
+        .unwrap();
+
+        let table = conn
+            .create_table("test_tagged_prune", batch.clone())
+            .execute()
+            .await
+            .unwrap();
+
+        // Create additional versions
+        for _ in 0..3 {
+            table.add(batch.clone()).execute().await.unwrap();
+        }
+
+        // Tag version 1 (an old version)
+        let mut tags = table.tags().await.unwrap();
+        tags.create("keep-me", 1).await.unwrap();
+
+        // Default (None) should silently skip tagged versions — no error
+        let result = table
+            .optimize(OptimizeAction::Prune {
+                older_than: Some(chrono::Duration::try_days(0).unwrap()),
+                delete_unverified: Some(true),
+                error_if_tagged_old_versions: None,
+            })
+            .await;
+        assert!(
+            result.is_ok(),
+            "Expected prune to succeed with None (default false), got: {:?}",
+            result.err()
+        );
+
+        // Explicit false should also succeed
+        let result = table
+            .optimize(OptimizeAction::Prune {
+                older_than: Some(chrono::Duration::try_days(0).unwrap()),
+                delete_unverified: Some(true),
+                error_if_tagged_old_versions: Some(false),
+            })
+            .await;
+        assert!(
+            result.is_ok(),
+            "Expected prune to succeed with Some(false), got: {:?}",
+            result.err()
+        );
+
+        // Explicit true should error because tagged version 1 is old enough to prune
+        let result = table
+            .optimize(OptimizeAction::Prune {
+                older_than: Some(chrono::Duration::try_days(0).unwrap()),
+                delete_unverified: Some(true),
+                error_if_tagged_old_versions: Some(true),
+            })
+            .await;
+        assert!(
+            result.is_err(),
+            "Expected prune to fail with Some(true) when tagged old versions exist"
+        );
     }
 
     #[rstest]
