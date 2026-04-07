@@ -474,6 +474,24 @@ export abstract class Table {
   abstract listVersions(): Promise<Version[]>;
 
   /**
+   * Get the information of a specific version
+   *
+   * Returns the version details including timestamp and metadata
+   * (row count, file sizes, etc.).
+   *
+   * @param version - The version number to get information for
+   * @returns The version information
+   * @throws If the version does not exist
+   * @example
+   * ```typescript
+   * const currentVersion = await table.version();
+   * const info = await table.getVersionInfo(currentVersion);
+   * console.log(info.version, info.timestamp, info.metadata);
+   * ```
+   */
+  abstract getVersionInfo(version: number): Promise<Version>;
+
+  /**
    * Get a tags manager for this table.
    *
    * Tags allow you to label specific versions of a table with a human-readable name.
@@ -895,6 +913,15 @@ export class LocalTable extends Table {
       timestamp: new Date(version.timestamp / 1000),
       metadata: version.metadata,
     }));
+  }
+
+  async getVersionInfo(version: number): Promise<Version> {
+    const info = await this.inner.getVersionInfo(version);
+    return {
+      version: info.version,
+      timestamp: new Date(info.timestamp / 1000),
+      metadata: info.metadata,
+    };
   }
 
   async restore(): Promise<void> {

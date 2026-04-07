@@ -1548,6 +1548,36 @@ describe("when dealing with versioning", () => {
       "checkout before running restore",
     );
   });
+
+  it("can get version info", async () => {
+    const con = await connect(tmpDir.name);
+    const table = await con.createTable("vectors", [
+      { id: 1n, vector: [0.1, 0.2] },
+    ]);
+    const version1 = await table.version();
+
+    // Get current version info
+    const info1 = await table.getVersionInfo(version1);
+    expect(info1.version).toBe(version1);
+    expect(info1.timestamp).toBeInstanceOf(Date);
+    expect(info1.metadata).toBeDefined();
+
+    // Add data to create a new version
+    await table.add([{ id: 2n, vector: [0.3, 0.4] }]);
+    const version2 = await table.version();
+    expect(version2).toBeGreaterThan(version1);
+
+    // Get new version info
+    const info2 = await table.getVersionInfo(version2);
+    expect(info2.version).toBe(version2);
+
+    // Can still get old version info
+    const info1Again = await table.getVersionInfo(version1);
+    expect(info1Again.version).toBe(version1);
+
+    // Non-existent version should throw
+    await expect(table.getVersionInfo(99999)).rejects.toThrow();
+  });
 });
 
 describe("when dealing with tags", () => {

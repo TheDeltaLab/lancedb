@@ -322,6 +322,16 @@ pub trait BaseTable: std::fmt::Display + std::fmt::Debug + Send + Sync {
     async fn restore(&self) -> Result<()>;
     /// List the versions of the table.
     async fn list_versions(&self) -> Result<Vec<Version>>;
+    /// Get the information of a specific version.
+    async fn get_version_info(&self, version: u64) -> Result<Version> {
+        let versions = self.list_versions().await?;
+        versions
+            .into_iter()
+            .find(|v| v.version == version)
+            .ok_or_else(|| Error::InvalidInput {
+                message: format!("Version {} not found", version),
+            })
+    }
     /// Get the table definition.
     async fn table_definition(&self) -> Result<TableDefinition>;
     /// Get the table URI (storage location)
@@ -1084,6 +1094,25 @@ impl Table {
     /// List all the versions of the table
     pub async fn list_versions(&self) -> Result<Vec<Version>> {
         self.inner.list_versions().await
+    }
+
+    /// Get the information of a specific version
+    ///
+    /// Returns the [`Version`] details for the given version number, including
+    /// timestamp and metadata (row count, file sizes, etc.).
+    ///
+    /// ```
+    /// use lancedb::Table;
+    ///
+    /// # async fn example(table: &Table) -> Result<(), Box<dyn std::error::Error>> {
+    /// let current_version = table.version().await?;
+    /// let info = table.get_version_info(current_version).await?;
+    /// println!("Version {} created at {:?}", info.version, info.timestamp);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn get_version_info(&self, version: u64) -> Result<Version> {
+        self.inner.get_version_info(version).await
     }
 
     /// List all indices that have been created with [`Self::create_index`]
@@ -3870,5 +3899,50 @@ mod tests {
         let result = table.list_indices().await.unwrap();
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].index_type, crate::index::IndexType::Bitmap);
+    }
+
+    #[tokio::test]
+    async fn test_get_version_info() {
+        let tmp_dir = tempdir().unwrap();
+        let uri = tmp_dir.path().to_str().unwrap();
+
+        let batch = make_test_batches();
+        let reader: Box<dyn RecordBatchReader + Send> = Box::new(RecordBatchIterator::new(
+            vec![Ok(batch.clone())],
+            batch.schema(),
+        ));
+
+        let conn = connect(uri).execute().await.unwrap();
+        let table = conn
+            .create_table("my_table", reader)
+            .execute()
+            .await
+            .unwrap();
+
+        let current_version = table.version().await.unwrap();
+        let info = table.get_version_info(current_version).await.unwrap();
+        assert_eq!(info.version, current_version);
+    }
+
+    #[tokio::test]
+    async fn test_get_version_info_not_found() {
+        let tmp_dir = tempdir().unwrap();
+        let uri = tmp_dir.path().to_str().unwrap();
+
+        let batch = make_test_batches();
+        let reader: Box<dyn RecordBatchReader + Send> = Box::new(RecordBatchIterator::new(
+            vec![Ok(batch.clone())],
+            batch.schema(),
+        ));
+
+        let conn = connect(uri).execute().await.unwrap();
+        let table = conn
+            .create_table("my_table", reader)
+            .execute()
+            .await
+            .unwrap();
+
+        let result = table.get_version_info(99999).await;
+        assert!(matches!(result.unwrap_err(), Error::InvalidInput { .. }));
     }
 }
