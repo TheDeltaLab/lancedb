@@ -389,6 +389,24 @@ impl Table {
     }
 
     #[napi(catch_unwind)]
+    pub async fn get_version_info(&self, version: i64) -> napi::Result<Version> {
+        let info = self
+            .inner_ref()?
+            .get_version_info(version as u64)
+            .await
+            .default_error()?;
+        Ok(Version {
+            version: info.version as i64,
+            timestamp: info.timestamp.timestamp_micros(),
+            metadata: info
+                .metadata
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect(),
+        })
+    }
+
+    #[napi(catch_unwind)]
     pub async fn restore(&self) -> napi::Result<()> {
         self.inner_ref()?.restore().await.default_error()
     }
