@@ -350,19 +350,15 @@ pub trait BaseTable: std::fmt::Display + std::fmt::Debug + Send + Sync {
                         result = Some(v);
                         lo = mid + 1;
                     } else {
-                        if mid == 0 {
-                            break;
-                        }
                         hi = mid - 1;
                     }
                 }
-                Err(_) => {
-                    // Version may not exist (gap after compaction), search lower half
-                    if mid == 0 {
-                        break;
-                    }
-                    hi = mid - 1;
+                Err(Error::InvalidInput { .. }) => {
+                    // Version not found (gap after cleanup), search upper half
+                    // since pruned versions are typically at the low end.
+                    lo = mid + 1;
                 }
+                Err(e) => return Err(e),
             }
         }
 

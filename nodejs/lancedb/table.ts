@@ -955,6 +955,11 @@ export class LocalTable extends Table {
     // precision.  Round to the end of the millisecond so that a Date derived
     // from a version's timestamp still includes that version.
     const timestampMicros = date.getTime() * 1000 + 999;
+    if (!Number.isSafeInteger(timestampMicros)) {
+      throw new RangeError(
+        "Date is out of range: microsecond timestamp exceeds safe integer precision",
+      );
+    }
     const info = await this.inner.getVersionByTime(timestampMicros);
     return {
       version: info.version,
