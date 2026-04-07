@@ -2211,6 +2211,16 @@ impl BaseTable for NativeTable {
         Ok(self.dataset.get().await?.versions().await?)
     }
 
+    async fn get_version_info(&self, version: u64) -> Result<Version> {
+        let dataset = self.dataset.get().await?;
+        let versioned = dataset.checkout_version(version).await.map_err(|_| {
+            Error::InvalidInput {
+                message: format!("Version {} not found", version),
+            }
+        })?;
+        Ok(versioned.version())
+    }
+
     async fn restore(&self) -> Result<()> {
         let version = self
             .dataset
