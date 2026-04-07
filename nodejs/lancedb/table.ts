@@ -500,6 +500,24 @@ export abstract class Table {
   abstract getVersionInfo(version: number): Promise<Version>;
 
   /**
+   * Find the most recent version whose timestamp is at or before the given time.
+   *
+   * Uses binary search over version numbers so that only O(log N) version
+   * reads are required, making it efficient even with many versions stored
+   * on remote object storage.
+   *
+   * @param date - The cutoff time
+   * @returns The most recent version at or before the given time
+   * @throws If no version exists at or before the given time
+   * @example
+   * ```typescript
+   * const version = await table.getVersionByTime(new Date("2024-01-01"));
+   * console.log(version.version, version.timestamp);
+   * ```
+   */
+  abstract getVersionByTime(date: Date): Promise<Version>;
+
+  /**
    * Get a tags manager for this table.
    *
    * Tags allow you to label specific versions of a table with a human-readable name.
@@ -925,6 +943,24 @@ export class LocalTable extends Table {
 
   async getVersionInfo(version: number): Promise<Version> {
     const info = await this.inner.getVersionInfo(version);
+    return {
+      version: info.version,
+      timestamp: new Date(info.timestamp / 1000),
+      metadata: info.metadata,
+    };
+  }
+
+  async getVersionByTime(date: Date): Promise<Version> {
+    // Date has millisecond precision; version timestamps have microsecond
+    // precision.  Round to the end of the millisecond so that a Date derived
+    // from a version's timestamp still includes that version.
+    const timestampMicros = date.getTime() * 1000 + 999;
+    if (!Number.isSafeInteger(timestampMicros)) {
+      throw new RangeError(
+        "Date is out of range: microsecond timestamp exceeds safe integer precision",
+      );
+    }
+    const info = await this.inner.getVersionByTime(timestampMicros);
     return {
       version: info.version,
       timestamp: new Date(info.timestamp / 1000),

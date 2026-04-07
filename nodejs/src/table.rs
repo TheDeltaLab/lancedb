@@ -5,8 +5,8 @@ use std::collections::HashMap;
 
 use lancedb::ipc::{ipc_file_to_batches, ipc_file_to_schema};
 use lancedb::table::{
-    AddDataMode, ColumnAlteration as LanceColumnAlteration, Duration, NewColumnTransform,
-    OptimizeAction, OptimizeOptions, Table as LanceDbTable,
+    AddDataMode, ColumnAlteration as LanceColumnAlteration, DateTime, Duration, NewColumnTransform,
+    OptimizeAction, OptimizeOptions, Table as LanceDbTable, Utc,
 };
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
@@ -393,6 +393,26 @@ impl Table {
         let info = self
             .inner_ref()?
             .get_version_info(version as u64)
+            .await
+            .default_error()?;
+        Ok(Version {
+            version: info.version as i64,
+            timestamp: info.timestamp.timestamp_micros(),
+            metadata: info
+                .metadata
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect(),
+        })
+    }
+
+    #[napi(catch_unwind)]
+    pub async fn get_version_by_time(&self, timestamp_micros: i64) -> napi::Result<Version> {
+        let timestamp: DateTime<Utc> = DateTime::from_timestamp_micros(timestamp_micros)
+            .ok_or_else(|| napi::Error::from_reason("Invalid timestamp".to_string()))?;
+        let info = self
+            .inner_ref()?
+            .get_version_by_time(timestamp)
             .await
             .default_error()?;
         Ok(Version {

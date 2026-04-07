@@ -345,6 +345,42 @@ Drop an index from the table.
 
 ***
 
+### getVersionByTime()
+
+```ts
+abstract getVersionByTime(date): Promise<Version>
+```
+
+Find the most recent version whose timestamp is at or before the given time.
+
+Uses binary search over version numbers so that only O(log N) version
+reads are required, making it efficient even with many versions stored
+on remote object storage.
+
+#### Parameters
+
+* **date**: `Date`
+    The cutoff time
+
+#### Returns
+
+`Promise`&lt;[`Version`](../interfaces/Version.md)&gt;
+
+The most recent version at or before the given time
+
+#### Throws
+
+If no version exists at or before the given time
+
+#### Example
+
+```typescript
+const version = await table.getVersionByTime(new Date("2024-01-01"));
+console.log(version.version, version.timestamp);
+```
+
+***
+
 ### getVersionInfo()
 
 ```ts
