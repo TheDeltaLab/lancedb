@@ -4052,4 +4052,67 @@ mod tests {
         let result = table.get_version_by_time(past).await;
         assert!(matches!(result.unwrap_err(), Error::InvalidInput { .. }));
     }
+
+    #[tokio::test]
+    async fn test_get_version_by_time_after_prune() {
+        let tmp_dir = tempdir().unwrap();
+        let uri = tmp_dir.path().to_str().unwrap();
+
+        let batch = make_test_batches();
+        let reader: Box<dyn RecordBatchReader + Send> = Box::new(RecordBatchIterator::new(
+            vec![Ok(batch.clone())],
+            batch.schema(),
+        ));
+
+        let conn = connect(uri).execute().await.unwrap();
+        let table = conn
+            .create_table("my_table", reader)
+            .execute()
+            .await
+            .unwrap();
+
+        // Create v2
+        let batch2 = make_test_batches();
+        let reader2: Box<dyn RecordBatchReader + Send> = Box::new(RecordBatchIterator::new(
+            vec![Ok(batch2.clone())],
+            batch2.schema(),
+        ));
+        table.add(reader2).execute().await.unwrap();
+
+        // Create v3
+        let batch3 = make_test_batches();
+        let reader3: Box<dyn RecordBatchReader + Send> = Box::new(RecordBatchIterator::new(
+            vec![Ok(batch3.clone())],
+            batch3.schema(),
+        ));
+        table.add(reader3).execute().await.unwrap();
+
+        let v3 = table.version().await.unwrap();
+        assert_eq!(v3, 3);
+
+        let v3_info = table.get_version_info(v3).await.unwrap();
+
+        // Prune old versions (v1, v2) — this creates gaps in version numbers
+        table
+            .optimize(OptimizeAction::Prune {
+                older_than: Some(chrono::Duration::zero()),
+                delete_unverified: Some(true),
+                error_if_tagged_old_versions: None,
+            })
+            .await
+            .unwrap();
+
+        // v1 and v2 should no longer be accessible
+        assert!(table.get_version_info(1).await.is_err());
+        assert!(table.get_version_info(2).await.is_err());
+
+        // get_version_by_time should still find v3 despite the gaps
+        let result = table.get_version_by_time(v3_info.timestamp).await.unwrap();
+        assert_eq!(result.version, v3);
+
+        // Future time should also return v3
+        let future = Utc::now() + chrono::Duration::days(365);
+        let result = table.get_version_by_time(future).await.unwrap();
+        assert_eq!(result.version, v3);
+    }
 }

@@ -1609,6 +1609,50 @@ describe("when dealing with versioning", () => {
       table.getVersionByTime(new Date("2000-01-01")),
     ).rejects.toThrow();
   });
+
+  it("can get version by time after prune", async () => {
+    const con = await connect(tmpDir.name, {
+      readConsistencyInterval: 0,
+    });
+    const table = await con.createTable("vectors_prune_time", [
+      { id: 1n, vector: [0.1, 0.2] },
+    ]);
+
+    // Create v2 and v3
+    await table.add([{ id: 2n, vector: [0.3, 0.4] }]);
+    await table.add([{ id: 3n, vector: [0.5, 0.6] }]);
+    expect(await table.version()).toBe(3);
+
+    // Record v3's timestamp before prune
+    const info3 = await table.getVersionInfo(3);
+
+    // Prune old versions — optimize may create additional versions internally
+    // (compaction + prune), so the surviving version number may be > 3
+    await table.optimize({
+      cleanupOlderThan: new Date(),
+      deleteUnverified: true,
+    });
+
+    // After prune, only the latest version survives; old ones are gone
+    const latestVersion = await table.version();
+    const latestInfo = await table.getVersionInfo(latestVersion);
+    expect(latestVersion).toBeGreaterThanOrEqual(3);
+
+    // v1 and v2 should be gone
+    await expect(table.getVersionInfo(1)).rejects.toThrow();
+    await expect(table.getVersionInfo(2)).rejects.toThrow();
+
+    // getVersionByTime at the latest version's timestamp should find it
+    const result = await table.getVersionByTime(latestInfo.timestamp);
+    expect(result.version).toBe(latestVersion);
+
+    // Future time should return the latest version
+    const futureResult = await table.getVersionByTime(new Date("2099-01-01"));
+    expect(futureResult.version).toBe(latestVersion);
+
+    // A time before all remaining versions should error
+    await expect(table.getVersionByTime(info3.timestamp)).rejects.toThrow();
+  });
 });
 
 describe("when dealing with tags", () => {
