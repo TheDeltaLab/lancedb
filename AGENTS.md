@@ -97,3 +97,6 @@ Please consider the following when reviewing code contributions.
 ### Documentation
 * New features must include updates to the rust documentation comments. Link to
   relevant structs and methods to increase the value of documentation.
+* **Every code change must include corresponding documentation updates.** After
+  modifying TypeScript bindings, always run `cd nodejs && npm run docs` and commit
+  the generated doc changes. CI will fail if generated docs are out of date.
