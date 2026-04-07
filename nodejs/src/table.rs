@@ -443,6 +443,7 @@ impl Table {
         &self,
         older_than_ms: Option<i64>,
         delete_unverified: Option<bool>,
+        error_if_tagged_old_versions: Option<bool>,
     ) -> napi::Result<OptimizeStats> {
         let inner = self.inner_ref()?;
 
@@ -471,7 +472,7 @@ impl Table {
             .optimize(OptimizeAction::Prune {
                 older_than,
                 delete_unverified,
-                error_if_tagged_old_versions: None,
+                error_if_tagged_old_versions,
             })
             .await
             .default_error()?

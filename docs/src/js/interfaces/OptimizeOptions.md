@@ -46,3 +46,17 @@ files older than `cleanupOlderThan`.
 **WARNING**: This should only be set to true if you can guarantee that
 no other process is currently working on this dataset. Otherwise the
 dataset could be put into a corrupted state.
+
+***
+
+### errorIfTaggedOldVersions
+
+```ts
+errorIfTaggedOldVersions: boolean;
+```
+
+If set to true, an error will be returned when there are tagged versions
+that are old enough to be cleaned up.
+
+By default this is false, which means tagged old versions are silently
+skipped during pruning.
