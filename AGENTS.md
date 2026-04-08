@@ -18,7 +18,10 @@ Common commands:
 * Lint: `cargo clippy --quiet --features remote --tests --examples`
 * Format: `cargo fmt --all`
 
-Before committing changes, run formatting.
+Before committing changes, run formatting and lint:
+
+1. `cargo fmt --all`
+2. `cargo clippy --quiet --features remote --tests --examples`
 
 ## Coding tips
 
@@ -78,8 +81,6 @@ releases a new version:
 * Update `[workspace.metadata.upstream].version` in `Cargo.toml` after syncing.
 
 ## Review Guidelines
-
-Please consider the following when reviewing code contributions.
 
 ### Rust API design
 * Design public APIs so they can be evolved easily in the future without breaking
