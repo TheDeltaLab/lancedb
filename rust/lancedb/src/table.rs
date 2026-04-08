@@ -4131,4 +4131,203 @@ mod tests {
         let result = table.get_version_by_time(future).await.unwrap();
         assert_eq!(result.version, v3);
     }
+
+    /// A mock table that tracks how many times `get_version_info` is called,
+    /// used to verify the binary search in `get_version_by_time` is efficient.
+    #[derive(Debug)]
+    struct MockVersionTable {
+        num_versions: u64,
+        base_time: chrono::DateTime<chrono::Utc>,
+        read_count: std::sync::atomic::AtomicU64,
+    }
+
+    impl std::fmt::Display for MockVersionTable {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "MockVersionTable({})", self.num_versions)
+        }
+    }
+
+    #[async_trait]
+    impl BaseTable for MockVersionTable {
+        fn as_any(&self) -> &dyn std::any::Any {
+            self
+        }
+        fn name(&self) -> &str {
+            "mock"
+        }
+        fn namespace(&self) -> &[String] {
+            &[]
+        }
+        fn id(&self) -> &str {
+            "mock"
+        }
+        async fn version(&self) -> Result<u64> {
+            Ok(self.num_versions)
+        }
+        async fn get_version_info(&self, version: u64) -> Result<Version> {
+            self.read_count
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            if version < 1 || version > self.num_versions {
+                return Err(Error::InvalidInput {
+                    message: format!("Version {} not found", version),
+                });
+            }
+            Ok(Version {
+                version,
+                timestamp: self.base_time + chrono::Duration::seconds(version as i64),
+                metadata: Default::default(),
+            })
+        }
+        async fn list_versions(&self) -> Result<Vec<Version>> {
+            unimplemented!("not needed for binary search test")
+        }
+        async fn schema(&self) -> Result<SchemaRef> {
+            unimplemented!()
+        }
+        async fn count_rows(&self, _filter: Option<Filter>) -> Result<usize> {
+            unimplemented!()
+        }
+        async fn create_plan(
+            &self,
+            _query: &AnyQuery,
+            _options: QueryExecutionOptions,
+        ) -> Result<Arc<dyn ExecutionPlan>> {
+            unimplemented!()
+        }
+        async fn query(
+            &self,
+            _query: &AnyQuery,
+            _options: QueryExecutionOptions,
+        ) -> Result<DatasetRecordBatchStream> {
+            unimplemented!()
+        }
+        async fn analyze_plan(
+            &self,
+            _query: &AnyQuery,
+            _options: QueryExecutionOptions,
+        ) -> Result<String> {
+            unimplemented!()
+        }
+        async fn add(&self, _add: AddDataBuilder) -> Result<AddResult> {
+            unimplemented!()
+        }
+        async fn delete(&self, _predicate: &str) -> Result<DeleteResult> {
+            unimplemented!()
+        }
+        async fn update(&self, _update: UpdateBuilder) -> Result<UpdateResult> {
+            unimplemented!()
+        }
+        async fn create_index(&self, _index: IndexBuilder) -> Result<()> {
+            unimplemented!()
+        }
+        async fn list_indices(&self) -> Result<Vec<IndexConfig>> {
+            unimplemented!()
+        }
+        async fn drop_index(&self, _name: &str) -> Result<()> {
+            unimplemented!()
+        }
+        async fn prewarm_index(&self, _name: &str) -> Result<()> {
+            unimplemented!()
+        }
+        async fn prewarm_data(&self, _columns: Option<Vec<String>>) -> Result<()> {
+            unimplemented!()
+        }
+        async fn index_stats(&self, _index_name: &str) -> Result<Option<IndexStatistics>> {
+            unimplemented!()
+        }
+        async fn merge_insert(
+            &self,
+            _params: MergeInsertBuilder,
+            _new_data: Box<dyn RecordBatchReader + Send>,
+        ) -> Result<MergeResult> {
+            unimplemented!()
+        }
+        async fn tags(&self) -> Result<Box<dyn Tags + '_>> {
+            unimplemented!()
+        }
+        async fn optimize(&self, _action: OptimizeAction) -> Result<OptimizeStats> {
+            unimplemented!()
+        }
+        async fn add_columns(
+            &self,
+            _transforms: NewColumnTransform,
+            _read_columns: Option<Vec<String>>,
+        ) -> Result<AddColumnsResult> {
+            unimplemented!()
+        }
+        async fn alter_columns(
+            &self,
+            _alterations: &[ColumnAlteration],
+        ) -> Result<AlterColumnsResult> {
+            unimplemented!()
+        }
+        async fn drop_columns(&self, _columns: &[&str]) -> Result<DropColumnsResult> {
+            unimplemented!()
+        }
+        async fn checkout(&self, _version: u64) -> Result<()> {
+            unimplemented!()
+        }
+        async fn checkout_tag(&self, _tag: &str) -> Result<()> {
+            unimplemented!()
+        }
+        async fn checkout_latest(&self) -> Result<()> {
+            unimplemented!()
+        }
+        async fn restore(&self) -> Result<()> {
+            unimplemented!()
+        }
+        async fn table_definition(&self) -> Result<TableDefinition> {
+            unimplemented!()
+        }
+        async fn uri(&self) -> Result<String> {
+            unimplemented!()
+        }
+        #[allow(deprecated)]
+        async fn storage_options(&self) -> Option<HashMap<String, String>> {
+            unimplemented!()
+        }
+        async fn initial_storage_options(&self) -> Option<HashMap<String, String>> {
+            unimplemented!()
+        }
+        async fn latest_storage_options(&self) -> Result<Option<HashMap<String, String>>> {
+            unimplemented!()
+        }
+        async fn wait_for_index(
+            &self,
+            _index_names: &[&str],
+            _timeout: std::time::Duration,
+        ) -> Result<()> {
+            unimplemented!()
+        }
+        async fn stats(&self) -> Result<TableStatistics> {
+            unimplemented!()
+        }
+    }
+
+    #[tokio::test]
+    async fn test_get_version_by_time_binary_search_efficiency() {
+        let num_versions = 1000u64;
+        let base_time = chrono::Utc::now() - chrono::Duration::seconds(num_versions as i64 + 1);
+        let mock = MockVersionTable {
+            num_versions,
+            base_time,
+            read_count: std::sync::atomic::AtomicU64::new(0),
+        };
+
+        // Query for the version at the midpoint
+        let target_version = 500u64;
+        let target_time = base_time + chrono::Duration::seconds(target_version as i64);
+        let result = mock.get_version_by_time(target_time).await.unwrap();
+        assert_eq!(result.version, target_version);
+
+        let reads = mock
+            .read_count
+            .load(std::sync::atomic::Ordering::Relaxed);
+        // Binary search on 1000 versions should need at most log2(1000) ≈ 10 reads.
+        // We allow up to 20 to leave some margin.
+        assert!(
+            reads <= 20,
+            "Binary search read {reads} manifests for {num_versions} versions, expected <= 20"
+        );
+    }
 }
