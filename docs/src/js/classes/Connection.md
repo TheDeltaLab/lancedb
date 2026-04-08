@@ -59,8 +59,8 @@ sharing the same data, deletion, and index files.
 * **options.sourceVersion?**: `number`
     The version of the source table to clone.
 
-* **options.targetNamespace?**: `string`[]
-    The namespace for the target table (defaults to root namespace).
+* **options.targetNamespacePath?**: `string`[]
+    The namespace path for the target table (defaults to root namespace).
 
 #### Returns
 
@@ -114,13 +114,13 @@ Creates a new empty Table
 
 `Promise`&lt;[`Table`](Table.md)&gt;
 
-#### createEmptyTable(name, schema, namespace, options)
+#### createEmptyTable(name, schema, namespacePath, options)
 
 ```ts
 abstract createEmptyTable(
    name,
    schema,
-   namespace?,
+   namespacePath?,
    options?): Promise<Table>
 ```
 
@@ -134,8 +134,8 @@ Creates a new empty Table
 * **schema**: [`SchemaLike`](../type-aliases/SchemaLike.md)
     The schema of the table
 
-* **namespace?**: `string`[]
-    The namespace to create the table in (defaults to root namespace)
+* **namespacePath?**: `string`[]
+    The namespace path to create the table in (defaults to root namespace)
 
 * **options?**: `Partial`&lt;[`CreateTableOptions`](../interfaces/CreateTableOptions.md)&gt;
     Additional options
@@ -148,10 +148,10 @@ Creates a new empty Table
 
 ### createTable()
 
-#### createTable(options, namespace)
+#### createTable(options, namespacePath)
 
 ```ts
-abstract createTable(options, namespace?): Promise<Table>
+abstract createTable(options, namespacePath?): Promise<Table>
 ```
 
 Creates a new Table and initialize it with new data.
@@ -161,8 +161,8 @@ Creates a new Table and initialize it with new data.
 * **options**: `object` & `Partial`&lt;[`CreateTableOptions`](../interfaces/CreateTableOptions.md)&gt;
     The options object.
 
-* **namespace?**: `string`[]
-    The namespace to create the table in (defaults to root namespace)
+* **namespacePath?**: `string`[]
+    The namespace path to create the table in (defaults to root namespace)
 
 ##### Returns
 
@@ -195,13 +195,13 @@ Creates a new Table and initialize it with new data.
 
 `Promise`&lt;[`Table`](Table.md)&gt;
 
-#### createTable(name, data, namespace, options)
+#### createTable(name, data, namespacePath, options)
 
 ```ts
 abstract createTable(
    name,
    data,
-   namespace?,
+   namespacePath?,
    options?): Promise<Table>
 ```
 
@@ -216,8 +216,8 @@ Creates a new Table and initialize it with new data.
     Non-empty Array of Records
     to be inserted into the table
 
-* **namespace?**: `string`[]
-    The namespace to create the table in (defaults to root namespace)
+* **namespacePath?**: `string`[]
+    The namespace path to create the table in (defaults to root namespace)
 
 * **options?**: `Partial`&lt;[`CreateTableOptions`](../interfaces/CreateTableOptions.md)&gt;
     Additional options
@@ -245,15 +245,15 @@ Return a brief description of the connection
 ### dropAllTables()
 
 ```ts
-abstract dropAllTables(namespace?): Promise<void>
+abstract dropAllTables(namespacePath?): Promise<void>
 ```
 
 Drop all tables in the database.
 
 #### Parameters
 
-* **namespace?**: `string`[]
-    The namespace to drop tables from (defaults to root namespace).
+* **namespacePath?**: `string`[]
+    The namespace path to drop tables from (defaults to root namespace).
 
 #### Returns
 
@@ -264,7 +264,7 @@ Drop all tables in the database.
 ### dropTable()
 
 ```ts
-abstract dropTable(name, namespace?): Promise<void>
+abstract dropTable(name, namespacePath?): Promise<void>
 ```
 
 Drop an existing table.
@@ -274,8 +274,8 @@ Drop an existing table.
 * **name**: `string`
     The name of the table to drop.
 
-* **namespace?**: `string`[]
-    The namespace of the table (defaults to root namespace).
+* **namespacePath?**: `string`[]
+    The namespace path of the table (defaults to root namespace).
 
 #### Returns
 
@@ -302,7 +302,7 @@ Return true if the connection has not been closed
 ```ts
 abstract openTable(
    name,
-   namespace?,
+   namespacePath?,
    options?): Promise<Table>
 ```
 
@@ -313,8 +313,8 @@ Open a table in the database.
 * **name**: `string`
     The name of the table
 
-* **namespace?**: `string`[]
-    The namespace of the table (defaults to root namespace)
+* **namespacePath?**: `string`[]
+    The namespace path of the table (defaults to root namespace)
 
 * **options?**: `Partial`&lt;[`OpenTableOptions`](../interfaces/OpenTableOptions.md)&gt;
     Additional options
@@ -347,10 +347,10 @@ Tables will be returned in lexicographical order.
 
 `Promise`&lt;`string`[]&gt;
 
-#### tableNames(namespace, options)
+#### tableNames(namespacePath, options)
 
 ```ts
-abstract tableNames(namespace?, options?): Promise<string[]>
+abstract tableNames(namespacePath?, options?): Promise<string[]>
 ```
 
 List all the table names in this database.
@@ -359,8 +359,8 @@ Tables will be returned in lexicographical order.
 
 ##### Parameters
 
-* **namespace?**: `string`[]
-    The namespace to list tables from (defaults to root namespace)
+* **namespacePath?**: `string`[]
+    The namespace path to list tables from (defaults to root namespace)
 
 * **options?**: `Partial`&lt;[`TableNamesOptions`](../interfaces/TableNamesOptions.md)&gt;
     options to control the

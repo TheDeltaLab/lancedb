@@ -19,11 +19,11 @@ pub use lance::dataset::Version;
 use lance::dataset::WriteMode;
 use lance::dataset::builder::DatasetBuilder;
 use lance::dataset::{InsertBuilder, WriteParams};
+use lance::index::DatasetIndexExt;
 use lance::index::vector::VectorIndexParams;
 use lance::index::vector::utils::infer_vector_dim;
 use lance::io::{ObjectStoreParams, WrappingObjectStore};
 use lance_datafusion::utils::StreamingWriteSource;
-use lance_index::DatasetIndexExt;
 use lance_index::IndexType;
 use lance_index::scalar::{BuiltinIndexType, ScalarIndexParams};
 use lance_index::vector::bq::RQBuildParams;
@@ -42,10 +42,12 @@ use lance_table::io::commit::CommitHandler;
 use lance_table::io::commit::ManifestNamingScheme;
 use lance_table::io::commit::external_manifest::ExternalManifestCommitHandler;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::format;
 use std::path::Path;
 use std::sync::Arc;
+
+use crate::connection::PushdownOperation;
 
 use crate::data::scannable::{PeekedScannable, Scannable, estimate_write_partitions};
 use crate::database::Database;
@@ -1219,10 +1221,9 @@ pub struct NativeTable {
     // Optional namespace client for namespace operations (e.g., managed versioning).
     // pub(crate) so query.rs can access the field for server-side query execution.
     pub(crate) namespace_client: Option<Arc<dyn LanceNamespace>>,
-    // Whether to enable server-side query execution via the namespace client.
-    // When true and namespace_client is set, queries will be executed on the
-    // namespace server instead of locally.
-    pub(crate) server_side_query_enabled: bool,
+    // Operations to push down to the namespace server.
+    // pub(crate) so query.rs can access the field for server-side query execution.
+    pub(crate) pushdown_operations: HashSet<PushdownOperation>,
 }
 
 impl std::fmt::Debug for NativeTable {
@@ -1234,7 +1235,7 @@ impl std::fmt::Debug for NativeTable {
             .field("uri", &self.uri)
             .field("read_consistency_interval", &self.read_consistency_interval)
             .field("namespace_client", &self.namespace_client)
-            .field("server_side_query_enabled", &self.server_side_query_enabled)
+            .field("pushdown_operations", &self.pushdown_operations)
             .finish()
     }
 }
@@ -1271,7 +1272,18 @@ impl NativeTable {
     /// * A [NativeTable] object.
     pub async fn open(uri: &str) -> Result<Self> {
         let name = Self::get_table_name(uri)?;
-        Self::open_with_params(uri, &name, vec![], None, None, None, None, false, None).await
+        Self::open_with_params(
+            uri,
+            &name,
+            vec![],
+            None,
+            None,
+            None,
+            None,
+            HashSet::new(),
+            None,
+        )
+        .await
     }
 
     /// Opens an existing Table
@@ -1282,7 +1294,7 @@ impl NativeTable {
     /// * `name` The Table name
     /// * `params` The [ReadParams] to use when opening the table
     /// * `namespace_client` - Optional namespace client for namespace operations
-    /// * `server_side_query_enabled` - Whether to enable server-side query execution
+    /// * `pushdown_operations` - Operations to push down to the namespace server
     /// * `managed_versioning` - Whether managed versioning is enabled. If None and namespace_client
     ///   is provided, the value will be fetched via describe_table.
     ///
@@ -1298,7 +1310,7 @@ impl NativeTable {
         params: Option<ReadParams>,
         read_consistency_interval: Option<std::time::Duration>,
         namespace_client: Option<Arc<dyn LanceNamespace>>,
-        server_side_query_enabled: bool,
+        pushdown_operations: HashSet<PushdownOperation>,
         managed_versioning: Option<bool>,
     ) -> Result<Self> {
         let params = params.unwrap_or_default();
@@ -1368,7 +1380,7 @@ impl NativeTable {
             dataset,
             read_consistency_interval,
             namespace_client,
-            server_side_query_enabled,
+            pushdown_operations,
         })
     }
 
@@ -1394,10 +1406,8 @@ impl NativeTable {
     /// * `write_store_wrapper` - Optional wrapper for the object store on write path
     /// * `params` - Optional read parameters
     /// * `read_consistency_interval` - Optional interval for read consistency
-    /// * `server_side_query_enabled` - Whether to enable server-side query execution.
-    ///   When true, the namespace_client will be stored and queries will be executed
-    ///   on the namespace server. When false, the namespace is only used for opening
-    ///   the table, and queries are executed locally.
+    /// * `pushdown_operations` - Operations to push down to the namespace server.
+    ///   When `QueryTable` is included, queries will be executed on the namespace server.
     /// * `session` - Optional session for object stores and caching
     ///
     /// # Returns
@@ -1411,7 +1421,7 @@ impl NativeTable {
         write_store_wrapper: Option<Arc<dyn WrappingObjectStore>>,
         params: Option<ReadParams>,
         read_consistency_interval: Option<std::time::Duration>,
-        server_side_query_enabled: bool,
+        pushdown_operations: HashSet<PushdownOperation>,
         session: Option<Arc<lance::session::Session>>,
     ) -> Result<Self> {
         let mut params = params.unwrap_or_default();
@@ -1458,11 +1468,12 @@ impl NativeTable {
         let dataset = DatasetConsistencyWrapper::new_latest(dataset, read_consistency_interval);
         let id = Self::build_id(&namespace, name);
 
-        let stored_namespace_client = if server_side_query_enabled {
-            Some(namespace_client)
-        } else {
-            None
-        };
+        let stored_namespace_client =
+            if pushdown_operations.contains(&PushdownOperation::QueryTable) {
+                Some(namespace_client)
+            } else {
+                None
+            };
 
         Ok(Self {
             name: name.to_string(),
@@ -1472,7 +1483,7 @@ impl NativeTable {
             dataset,
             read_consistency_interval,
             namespace_client: stored_namespace_client,
-            server_side_query_enabled,
+            pushdown_operations,
         })
     }
 
@@ -1513,7 +1524,7 @@ impl NativeTable {
     /// * `batches` RecordBatch to be saved in the database.
     /// * `params` - Write parameters.
     /// * `namespace_client` - Optional namespace client for namespace operations
-    /// * `server_side_query_enabled` - Whether to enable server-side query execution
+    /// * `pushdown_operations` - Operations to push down to the namespace server
     ///
     /// # Returns
     ///
@@ -1528,7 +1539,7 @@ impl NativeTable {
         params: Option<WriteParams>,
         read_consistency_interval: Option<std::time::Duration>,
         namespace_client: Option<Arc<dyn LanceNamespace>>,
-        server_side_query_enabled: bool,
+        pushdown_operations: HashSet<PushdownOperation>,
     ) -> Result<Self> {
         // Default params uses format v1.
         let params = params.unwrap_or(WriteParams {
@@ -1561,7 +1572,7 @@ impl NativeTable {
             dataset: DatasetConsistencyWrapper::new_latest(dataset, read_consistency_interval),
             read_consistency_interval,
             namespace_client,
-            server_side_query_enabled,
+            pushdown_operations,
         })
     }
 
@@ -1575,7 +1586,7 @@ impl NativeTable {
         params: Option<WriteParams>,
         read_consistency_interval: Option<std::time::Duration>,
         namespace_client: Option<Arc<dyn LanceNamespace>>,
-        server_side_query_enabled: bool,
+        pushdown_operations: HashSet<PushdownOperation>,
     ) -> Result<Self> {
         let data: Box<dyn Scannable> = Box::new(RecordBatch::new_empty(schema));
         Self::create(
@@ -1587,7 +1598,7 @@ impl NativeTable {
             params,
             read_consistency_interval,
             namespace_client,
-            server_side_query_enabled,
+            pushdown_operations,
         )
         .await
     }
@@ -1610,7 +1621,7 @@ impl NativeTable {
     /// * `write_store_wrapper` - Optional wrapper for the object store on write path
     /// * `params` - Optional write parameters
     /// * `read_consistency_interval` - Optional interval for read consistency
-    /// * `server_side_query_enabled` - Whether to enable server-side query execution
+    /// * `pushdown_operations` - Operations to push down to the namespace server
     ///
     /// # Returns
     ///
@@ -1625,7 +1636,7 @@ impl NativeTable {
         write_store_wrapper: Option<Arc<dyn WrappingObjectStore>>,
         params: Option<WriteParams>,
         read_consistency_interval: Option<std::time::Duration>,
-        server_side_query_enabled: bool,
+        pushdown_operations: HashSet<PushdownOperation>,
         session: Option<Arc<lance::session::Session>>,
     ) -> Result<Self> {
         // Build table_id from namespace + name for the storage options provider
@@ -1677,11 +1688,12 @@ impl NativeTable {
 
         let id = Self::build_id(&namespace, name);
 
-        let stored_namespace_client = if server_side_query_enabled {
-            Some(namespace_client)
-        } else {
-            None
-        };
+        let stored_namespace_client =
+            if pushdown_operations.contains(&PushdownOperation::QueryTable) {
+                Some(namespace_client)
+            } else {
+                None
+            };
 
         Ok(Self {
             name: name.to_string(),
@@ -1691,7 +1703,7 @@ impl NativeTable {
             dataset: DatasetConsistencyWrapper::new_latest(dataset, read_consistency_interval),
             read_consistency_interval,
             namespace_client: stored_namespace_client,
-            server_side_query_enabled,
+            pushdown_operations,
         })
     }
 
@@ -2712,9 +2724,19 @@ mod tests {
             vec![Ok(batch.clone())],
             batch.schema(),
         ));
-        let table = NativeTable::create(uri, "test", vec![], reader, None, None, None, None, false)
-            .await
-            .unwrap();
+        let table = NativeTable::create(
+            uri,
+            "test",
+            vec![],
+            reader,
+            None,
+            None,
+            None,
+            None,
+            HashSet::new(),
+        )
+        .await
+        .unwrap();
 
         assert_eq!(table.count_rows(None).await.unwrap(), 10);
         assert_eq!(
@@ -3741,7 +3763,7 @@ mod tests {
             TableStatistics {
                 num_rows: 250,
                 num_indices: 0,
-                total_bytes: 2000,
+                total_bytes: 2300,
                 fragment_stats: FragmentStatistics {
                     num_fragments: 11,
                     num_small_fragments: 11,
