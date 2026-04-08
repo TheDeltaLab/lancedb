@@ -1,0 +1,162 @@
+name: Upstream Sync
+
+on:
+  schedule:
+    - cron: "7 9 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: upstream-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure git user
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Fetch upstream
+        run: |
+          git remote add upstream https://github.com/lancedb/lancedb.git
+          git fetch upstream main
+
+      - name: Check for new commits
+        id: check
+        run: |
+          set -euo pipefail
+          git fetch origin sync
+          LOCAL=$(git rev-parse origin/sync)
+          UPSTREAM=$(git rev-parse upstream/main)
+          if [ "$LOCAL" = "$UPSTREAM" ]; then
+            echo "sync branch is up to date with upstream/main"
+            echo "has_new_commits=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "New upstream commits detected"
+            echo "has_new_commits=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Update sync branch
+        if: steps.check.outputs.has_new_commits == 'true'
+        run: |
+          set -euo pipefail
+          git checkout sync
+          git merge --ff-only upstream/main
+          git push origin sync
+
+      - name: Check for existing sync PR
+        if: steps.check.outputs.has_new_commits == 'true'
+        id: pr
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          COUNT=$(gh pr list --search '"sync: merge upstream" in:title' --state open --limit 1 --json number --jq 'length')
+          if [ "$COUNT" -gt 0 ]; then
+            echo "Open sync PR already exists"
+            echo "pr_exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No existing sync PR"
+            echo "pr_exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create merge branch
+        if: steps.check.outputs.has_new_commits == 'true' && steps.pr.outputs.pr_exists != 'true'
+        id: merge
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          DATE=$(date +%Y-%m-%d)
+          BRANCH="sync/merge-${DATE}"
+          echo "branch=${BRANCH}" >> "$GITHUB_OUTPUT"
+          echo "date=${DATE}" >> "$GITHUB_OUTPUT"
+
+          git checkout -b "$BRANCH" origin/main
+
+          if git merge sync --no-edit; then
+            echo "Merge succeeded without conflicts"
+            echo "conflict=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Merge has conflicts"
+            git merge --abort
+            echo "conflict=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Push branch and create PR
+        if: steps.check.outputs.has_new_commits == 'true' && steps.pr.outputs.pr_exists != 'true' && steps.merge.outputs.conflict != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          BRANCH=${{ steps.merge.outputs.branch }}
+          DATE=${{ steps.merge.outputs.date }}
+
+          git push origin "$BRANCH"
+
+          gh pr create \
+            --base main \
+            --head "$BRANCH" \
+            --title "sync: merge upstream ${DATE}" \
+            --body "$(cat <<'EOF'
+          Automated merge of upstream `lancedb/lancedb` changes into `main`.
+
+          ## Review checklist
+
+          - [ ] All `rust/` and `nodejs/` changes are included
+          - [ ] No `python/` or `java/` files reintroduced
+          - [ ] `cargo check --quiet --features remote --tests --examples` passes
+          - [ ] `cargo test --quiet --features remote --tests` passes
+          - [ ] Node.js bindings build: `cd nodejs && npm run build`
+          - [ ] Update `[workspace.metadata.upstream].version` in root `Cargo.toml`
+          EOF
+          )"
+
+      - name: Create conflict issue
+        if: steps.check.outputs.has_new_commits == 'true' && steps.pr.outputs.pr_exists != 'true' && steps.merge.outputs.conflict == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          DATE=${{ steps.merge.outputs.date }}
+
+          gh label create upstream-sync --description "Upstream sync issues" --force 2>/dev/null || true
+
+          gh issue create \
+            --title "sync: manual merge needed (${DATE})" \
+            --label "upstream-sync" \
+            --body "$(cat <<'EOF'
+          Automated upstream sync failed due to merge conflicts.
+
+          The `sync` branch has been updated to match `upstream/main`, but merging
+          into `main` requires manual conflict resolution.
+
+          ## Steps to resolve
+
+          ```bash
+          git fetch origin
+          git checkout -b sync/merge-YYYY-MM-DD origin/main
+          git merge origin/sync
+          # Resolve conflicts...
+          git add . && git commit
+          git push origin sync/merge-YYYY-MM-DD
+          gh pr create --base main --head sync/merge-YYYY-MM-DD \
+            --title "sync: merge upstream YYYY-MM-DD" \
+            --body "Manual merge of upstream changes."
+          ```
+
+          See `docs/src/upstream-sync.md` for detailed instructions.
+          EOF
+          )"
