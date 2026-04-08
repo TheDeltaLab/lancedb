@@ -96,6 +96,8 @@ nav:
       - SDK Reference: index.md
       - Javascript/TypeScript: js/globals.md
       - Rust: https://docs.rs/lancedb/latest/lancedb/index.html
+  - Contributing:
+      - Upstream Sync Workflow: upstream-sync.md
 
 extra_css:
   - styles/global.css
