@@ -10,24 +10,14 @@ import {
 import {
   ConnectionOptions,
   Connection as LanceDbConnection,
-  JsHeaderProvider as NativeJsHeaderProvider,
   Session,
 } from "./native.js";
-
-import { HeaderProvider } from "./header";
-
-// Re-export native header provider for use with connectWithHeaderProvider
-export { JsHeaderProvider as NativeJsHeaderProvider } from "./native.js";
 
 export {
   AddColumnsSql,
   ConnectionOptions,
   IndexStatistics,
   IndexConfig,
-  ClientConfig,
-  TimeoutConfig,
-  RetryConfig,
-  TlsConfig,
   OptimizeStats,
   CompactionStats,
   RemovalStats,
@@ -106,13 +96,6 @@ export {
   ColumnAlteration,
 } from "./table";
 
-export {
-  HeaderProvider,
-  StaticHeaderProvider,
-  OAuthHeaderProvider,
-  TokenResponse,
-} from "./header";
-
 export { MergeInsertBuilder, WriteExecutionOptions } from "./merge";
 
 export * as embedding from "./embedding";
@@ -136,9 +119,7 @@ export { IntoSql, packBits } from "./util";
  *
  * - `/path/to/database` - local database
  * - `s3://bucket/path/to/database` or `gs://bucket/path/to/database` - database on cloud storage
- * - `db://host:port` - remote database (LanceDB cloud)
- * @param {string} uri - The uri of the database. If the database uri starts
- * with `db://` then it connects to a remote database.
+ * @param {string} uri - The uri of the database.
  * @see {@link ConnectionOptions} for more details on the URI format.
  * @param  options - The options to use when connecting to the database
  * @example
@@ -152,27 +133,11 @@ export { IntoSql, packBits } from "./util";
  *   {storageOptions: {timeout: "60s"}
  * });
  * ```
- * @example
- * Using with a header provider for per-request authentication:
- * ```ts
- * const provider = new StaticHeaderProvider({
- *   "X-API-Key": "my-key"
- * });
- * const conn = await connectWithHeaderProvider(
- *   "db://host:port",
- *   options,
- *   provider
- * );
- * ```
  */
 export async function connect(
   uri: string,
   options?: Partial<ConnectionOptions>,
   session?: Session,
-  headerProvider?:
-    | HeaderProvider
-    | (() => Record<string, string>)
-    | (() => Promise<Record<string, string>>),
 ): Promise<Connection>;
 /**
  * Connect to a LanceDB instance at the given URI.
@@ -181,7 +146,6 @@ export async function connect(
  *
  * - `/path/to/database` - local database
  * - `s3://bucket/path/to/database` or `gs://bucket/path/to/database` - database on cloud storage
- * - `db://host:port` - remote database (LanceDB cloud)
  * @param  options - The options to use when connecting to the database
  * @see {@link ConnectionOptions} for more details on the URI format.
  * @example
@@ -207,23 +171,10 @@ export async function connect(
 export async function connect(
   uriOrOptions: string | (Partial<ConnectionOptions> & { uri: string }),
   optionsOrSession?: Partial<ConnectionOptions> | Session,
-  sessionOrHeaderProvider?:
-    | Session
-    | HeaderProvider
-    | (() => Record<string, string>)
-    | (() => Promise<Record<string, string>>),
-  headerProvider?:
-    | HeaderProvider
-    | (() => Record<string, string>)
-    | (() => Promise<Record<string, string>>),
+  _session?: Session,
 ): Promise<Connection> {
   let uri: string | undefined;
   let finalOptions: Partial<ConnectionOptions> = {};
-  let finalHeaderProvider:
-    | HeaderProvider
-    | (() => Record<string, string>)
-    | (() => Promise<Record<string, string>>)
-    | undefined;
 
   if (typeof uriOrOptions !== "string") {
     // First overload: connect(options)
@@ -231,7 +182,7 @@ export async function connect(
     uri = uri_;
     finalOptions = opts;
   } else {
-    // Second overload: connect(uri, options?, session?, headerProvider?)
+    // Second overload: connect(uri, options?, session?)
     uri = uriOrOptions;
 
     // Handle optionsOrSession parameter
@@ -241,22 +192,6 @@ export async function connect(
     } else {
       // Second param is options
       finalOptions = (optionsOrSession as Partial<ConnectionOptions>) || {};
-    }
-
-    // Handle sessionOrHeaderProvider parameter
-    if (
-      sessionOrHeaderProvider &&
-      (typeof sessionOrHeaderProvider === "function" ||
-        "getHeaders" in sessionOrHeaderProvider)
-    ) {
-      // Third param is header provider
-      finalHeaderProvider = sessionOrHeaderProvider as
-        | HeaderProvider
-        | (() => Record<string, string>)
-        | (() => Promise<Record<string, string>>);
-    } else {
-      // Third param is session, header provider is fourth param
-      finalHeaderProvider = headerProvider;
     }
   }
 
@@ -269,27 +204,6 @@ export async function connect(
     (<ConnectionOptions>finalOptions).storageOptions,
   );
 
-  // Create native header provider if one was provided
-  let nativeProvider: NativeJsHeaderProvider | undefined;
-  if (finalHeaderProvider) {
-    if (typeof finalHeaderProvider === "function") {
-      nativeProvider = new NativeJsHeaderProvider(async () =>
-        finalHeaderProvider(),
-      );
-    } else if (
-      finalHeaderProvider &&
-      typeof finalHeaderProvider.getHeaders === "function"
-    ) {
-      nativeProvider = new NativeJsHeaderProvider(async () =>
-        finalHeaderProvider.getHeaders(),
-      );
-    }
-  }
-
-  const nativeConn = await LanceDbConnection.new(
-    uri,
-    finalOptions,
-    nativeProvider,
-  );
+  const nativeConn = await LanceDbConnection.new(uri, finalOptions);
   return new LocalConnection(nativeConn);
 }

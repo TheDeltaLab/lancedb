@@ -76,8 +76,6 @@ pub mod schema_evolution;
 pub mod update;
 pub mod write_progress;
 use crate::index::waiter::wait_for_index;
-#[cfg(feature = "remote")]
-pub(crate) use add_data::PreprocessingOutput;
 pub use add_data::{AddDataBuilder, AddDataMode, AddResult, NaNVectorBehavior};
 pub use chrono::{DateTime, Duration, Utc};
 pub use delete::DeleteResult;
@@ -222,8 +220,8 @@ pub trait Tags: Send + Sync {
 
 pub use self::merge::MergeResult;
 
-/// A trait for anything "table-like".  This is used for both native tables (which target
-/// Lance datasets) and remote tables (which target LanceDB cloud)
+/// A trait for anything "table-like".  This is used for native tables which target
+/// Lance datasets.
 ///
 /// This trait is still EXPERIMENTAL and subject to change in the future
 #[async_trait]
@@ -282,11 +280,6 @@ pub trait BaseTable: std::fmt::Display + std::fmt::Debug + Send + Sync {
     async fn drop_index(&self, name: &str) -> Result<()>;
     /// Prewarm an index in the table.
     async fn prewarm_index(&self, name: &str) -> Result<()>;
-    /// Prewarm data for the table.
-    ///
-    /// Currently only supported on remote tables.
-    /// If `columns` is `None`, all columns are prewarmed.
-    async fn prewarm_data(&self, columns: Option<Vec<String>>) -> Result<()>;
     /// Get statistics about the index.
     async fn index_stats(&self, index_name: &str) -> Result<Option<IndexStatistics>>;
     /// Merge insert new records into the table.
@@ -414,108 +407,6 @@ pub struct Table {
     inner: Arc<dyn BaseTable>,
     database: Option<Arc<dyn Database>>,
     embedding_registry: Arc<dyn EmbeddingRegistry>,
-}
-
-#[cfg(all(test, feature = "remote"))]
-mod test_utils {
-    use super::*;
-
-    impl Table {
-        pub fn new_with_handler<T>(
-            name: impl Into<String>,
-            handler: impl Fn(reqwest::Request) -> http::Response<T> + Clone + Send + Sync + 'static,
-        ) -> Self
-        where
-            T: Into<reqwest::Body>,
-        {
-            let inner = Arc::new(crate::remote::table::RemoteTable::new_mock(
-                name.into(),
-                handler.clone(),
-                None,
-            ));
-            let database = Arc::new(crate::remote::db::RemoteDatabase::new_mock(handler));
-            Self {
-                inner,
-                database: Some(database),
-                // Registry is unused.
-                embedding_registry: Arc::new(MemoryRegistry::new()),
-            }
-        }
-
-        pub fn new_with_handler_version<T>(
-            name: impl Into<String>,
-            version: semver::Version,
-            handler: impl Fn(reqwest::Request) -> http::Response<T> + Clone + Send + Sync + 'static,
-        ) -> Self
-        where
-            T: Into<reqwest::Body>,
-        {
-            let inner = Arc::new(crate::remote::table::RemoteTable::new_mock(
-                name.into(),
-                handler.clone(),
-                Some(version),
-            ));
-            let database = Arc::new(crate::remote::db::RemoteDatabase::new_mock(handler));
-            Self {
-                inner,
-                database: Some(database),
-                // Registry is unused.
-                embedding_registry: Arc::new(MemoryRegistry::new()),
-            }
-        }
-
-        pub fn new_with_handler_and_config<T>(
-            name: impl Into<String>,
-            handler: impl Fn(reqwest::Request) -> http::Response<T> + Clone + Send + Sync + 'static,
-            config: crate::remote::ClientConfig,
-        ) -> Self
-        where
-            T: Into<reqwest::Body>,
-        {
-            let inner = Arc::new(crate::remote::table::RemoteTable::new_mock_with_config(
-                name.into(),
-                handler.clone(),
-                config.clone(),
-            ));
-            let database = Arc::new(crate::remote::db::RemoteDatabase::new_mock_with_config(
-                handler, config,
-            ));
-            Self {
-                inner,
-                database: Some(database),
-                // Registry is unused.
-                embedding_registry: Arc::new(MemoryRegistry::new()),
-            }
-        }
-
-        pub fn new_with_handler_version_and_config<T>(
-            name: impl Into<String>,
-            version: semver::Version,
-            handler: impl Fn(reqwest::Request) -> http::Response<T> + Clone + Send + Sync + 'static,
-            config: crate::remote::ClientConfig,
-        ) -> Self
-        where
-            T: Into<reqwest::Body>,
-        {
-            let inner = Arc::new(
-                crate::remote::table::RemoteTable::new_mock_with_version_and_config(
-                    name.into(),
-                    handler.clone(),
-                    Some(version),
-                    config.clone(),
-                ),
-            );
-            let database = Arc::new(crate::remote::db::RemoteDatabase::new_mock_with_config(
-                handler, config,
-            ));
-            Self {
-                inner,
-                database: Some(database),
-                // Registry is unused.
-                embedding_registry: Arc::new(MemoryRegistry::new()),
-            }
-        }
-    }
 }
 
 impl std::fmt::Display for Table {
@@ -764,7 +655,7 @@ impl Table {
     }
 
     /// See [Table::create_index]
-    /// For remote tables, this allows an optional wait_timeout to poll until asynchronous indexing is complete
+    /// Allows an optional wait_timeout to poll until indexing is complete.
     pub fn create_index_with_timeout(
         &self,
         columns: &[impl AsRef<str>],
@@ -1178,7 +1069,6 @@ impl Table {
     /// Get the table URI (storage location)
     ///
     /// Returns the full storage location of the table (e.g., S3/GCS path).
-    /// For remote tables, this fetches the location from the server via describe.
     pub async fn uri(&self) -> Result<String> {
         self.inner.uri().await
     }
@@ -1223,8 +1113,6 @@ impl Table {
 
     /// Drop an index from the table.
     ///
-    /// Note: This is not yet available in LanceDB cloud.
-    ///
     /// This does not delete the index from disk, it just removes it from the table.
     /// To delete the index, run [`Self::optimize()`] after dropping the index.
     ///
@@ -1249,27 +1137,6 @@ impl Table {
     /// Use [`Self::list_indices()`] to find the names of the indices.
     pub async fn prewarm_index(&self, name: &str) -> Result<()> {
         self.inner.prewarm_index(name).await
-    }
-
-    /// Prewarm data for the table.
-    ///
-    /// This is a hint to the database that the given columns will be accessed in
-    /// the future and the database should prefetch the data if possible.  This
-    /// can reduce cold-start latency for subsequent queries.  Currently only
-    /// supported on remote tables.
-    ///
-    /// This call initiates prewarming and returns once the request is accepted.
-    /// It is idempotent and safe to call from multiple clients concurrently —
-    /// calling it on already-prewarmed columns is a no-op on the server.
-    ///
-    /// This operation has a large upfront cost but can speed up future queries
-    /// that need to fetch the given columns.  Large columns such as embeddings
-    /// or binary data may not be practical to prewarm.  This feature is intended
-    /// for workloads that issue many queries against the same columns.
-    ///
-    /// If `columns` is `None`, all columns are prewarmed.
-    pub async fn prewarm_data(&self, columns: Option<Vec<String>>) -> Result<()> {
-        self.inner.prewarm_data(columns).await
     }
 
     /// Poll until the columns are fully indexed. Will return Error::Timeout if the columns
@@ -2450,12 +2317,6 @@ impl BaseTable for NativeTable {
     async fn prewarm_index(&self, index_name: &str) -> Result<()> {
         let dataset = self.dataset.get().await?;
         Ok(dataset.prewarm_index(index_name).await?)
-    }
-
-    async fn prewarm_data(&self, _columns: Option<Vec<String>>) -> Result<()> {
-        Err(Error::NotSupported {
-            message: "prewarm_data is currently only supported on remote tables.".into(),
-        })
     }
 
     async fn update(&self, update: UpdateBuilder) -> Result<UpdateResult> {
@@ -4227,9 +4088,6 @@ mod tests {
             unimplemented!()
         }
         async fn prewarm_index(&self, _name: &str) -> Result<()> {
-            unimplemented!()
-        }
-        async fn prewarm_data(&self, _columns: Option<Vec<String>>) -> Result<()> {
             unimplemented!()
         }
         async fn index_stats(&self, _index_name: &str) -> Result<Option<IndexStatistics>> {

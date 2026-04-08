@@ -46,8 +46,6 @@ jobs:
         run: cargo fmt --all -- --check
       - name: Run clippy
         run: cargo clippy --profile ci --workspace --tests --all-features -- -D warnings
-      - name: Run clippy (without remote feature)
-        run: cargo clippy --profile ci --workspace --tests -- -D warnings
 
   build-no-lock:
     runs-on: ubuntu-24.04
@@ -116,11 +114,6 @@ jobs:
         run: CARGO_ARGS="--profile ci" make -C ./lancedb feature-tests
       - name: Run examples
         run: cargo run  --profile ci --example simple --locked
-      - name: Run remote tests
-        # Running this requires access to secrets, so skip if this is
-        # a PR from a fork.
-        if: github.event_name != 'pull_request' || !github.event.pull_request.head.repo.fork
-        run: CARGO_ARGS="--profile ci" make -C ./lancedb remote-tests
 
   macos:
     timeout-minutes: 30

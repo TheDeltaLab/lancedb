@@ -27,15 +27,8 @@ use crate::database::{
 };
 use crate::embeddings::{EmbeddingRegistry, MemoryRegistry};
 use crate::error::{Error, Result};
-#[cfg(feature = "remote")]
-use crate::remote::{
-    client::ClientConfig,
-    db::{OPT_REMOTE_API_KEY, OPT_REMOTE_HOST_OVERRIDE, OPT_REMOTE_REGION},
-};
 use lance::io::ObjectStoreParams;
 pub use lance_encoding::version::LanceFileVersion;
-#[cfg(feature = "remote")]
-use lance_io::object_store::StorageOptions;
 use lance_io::object_store::{StorageOptionsAccessor, StorageOptionsProvider};
 
 mod create_table;
@@ -451,7 +444,7 @@ impl Connection {
 
     /// Rename a table in the database.
     ///
-    /// This is only supported in LanceDB Cloud.
+    /// This is only supported in LanceDB Cloud (not available in this build).
     pub async fn rename_table(
         &self,
         old_name: impl AsRef<str>,
@@ -534,7 +527,6 @@ impl Connection {
     /// Get the equivalent namespace client in the database of this connection.
     /// For LanceNamespaceDatabase, it is the underlying LanceNamespace.
     /// For ListingDatabase, it is the equivalent DirectoryNamespace.
-    /// For RemoteDatabase, it is the equivalent RestNamespace.
     pub async fn namespace_client(&self) -> Result<Arc<dyn lance_namespace::LanceNamespace>> {
         self.internal.namespace_client().await
     }
@@ -561,11 +553,7 @@ pub struct ConnectRequest {
     ///
     /// - `/path/to/database` - local database on file system.
     /// - `s3://bucket/path/to/database` or `gs://bucket/path/to/database` - database on cloud object store
-    /// - `db://dbname` - LanceDB Cloud
     pub uri: String,
-
-    #[cfg(feature = "remote")]
-    pub client_config: ClientConfig,
 
     /// Database specific options
     pub options: HashMap<String, String>,
@@ -595,18 +583,12 @@ pub struct ConnectBuilder {
     embedding_registry: Option<Arc<dyn EmbeddingRegistry>>,
 }
 
-#[cfg(feature = "remote")]
-const ENV_VARS_TO_STORAGE_OPTS: [(&str, &str); 1] =
-    [("AZURE_STORAGE_ACCOUNT_NAME", "azure_storage_account_name")];
-
 impl ConnectBuilder {
     /// Create a new [`ConnectOptions`] with the given database URI.
     pub fn new(uri: &str) -> Self {
         Self {
             request: ConnectRequest {
                 uri: uri.to_string(),
-                #[cfg(feature = "remote")]
-                client_config: Default::default(),
                 read_consistency_interval: None,
                 options: HashMap::new(),
                 session: None,
@@ -615,88 +597,12 @@ impl ConnectBuilder {
         }
     }
 
-    /// Set the LanceDB Cloud API key.
-    ///
-    /// This option is only used when connecting to LanceDB Cloud (db:// URIs)
-    /// and will be ignored for other URIs.
-    ///
-    /// # Arguments
-    ///
-    /// * `api_key` - The API key to use for the connection
-    #[cfg(feature = "remote")]
-    pub fn api_key(mut self, api_key: &str) -> Self {
-        self.request
-            .options
-            .insert(OPT_REMOTE_API_KEY.to_string(), api_key.to_string());
-        self
-    }
-
-    /// Set the LanceDB Cloud region.
-    ///
-    /// This option is only used when connecting to LanceDB Cloud (db:// URIs)
-    /// and will be ignored for other URIs.
-    ///
-    /// # Arguments
-    ///
-    /// * `region` - The region to use for the connection
-    #[cfg(feature = "remote")]
-    pub fn region(mut self, region: &str) -> Self {
-        self.request
-            .options
-            .insert(OPT_REMOTE_REGION.to_string(), region.to_string());
-        self
-    }
-
-    /// Set the LanceDB Cloud host override.
-    ///
-    /// This option is only used when connecting to LanceDB Cloud (db:// URIs)
-    /// and will be ignored for other URIs.
-    ///
-    /// # Arguments
-    ///
-    /// * `host_override` - The host override to use for the connection
-    #[cfg(feature = "remote")]
-    pub fn host_override(mut self, host_override: &str) -> Self {
-        self.request.options.insert(
-            OPT_REMOTE_HOST_OVERRIDE.to_string(),
-            host_override.to_string(),
-        );
-        self
-    }
-
     /// Set the database specific options
     ///
     /// See [crate::database::listing::ListingDatabaseOptions] for the options available for
     /// native LanceDB databases.
-    ///
-    /// See [crate::remote::db::RemoteDatabaseOptions] for the options available for
-    /// LanceDB Cloud and LanceDB Enterprise.
     pub fn database_options(mut self, database_options: &dyn DatabaseOptions) -> Self {
         database_options.serialize_into_map(&mut self.request.options);
-        self
-    }
-
-    /// Set the LanceDB Cloud client configuration.
-    ///
-    /// ```no_run
-    /// # use lancedb::connect;
-    /// # use lancedb::remote::*;
-    /// connect("db://my_database")
-    ///    .client_config(ClientConfig {
-    ///      timeout_config: TimeoutConfig {
-    ///        connect_timeout: Some(std::time::Duration::from_secs(5)),
-    ///        ..Default::default()
-    ///      },
-    ///      retry_config: RetryConfig {
-    ///        retries: Some(5),
-    ///        ..Default::default()
-    ///      },
-    ///      ..Default::default()
-    ///    });
-    /// ```
-    #[cfg(feature = "remote")]
-    pub fn client_config(mut self, config: ClientConfig) -> Self {
-        self.request.client_config = config;
         self
     }
 
@@ -757,9 +663,6 @@ impl ConnectBuilder {
     ///
     /// This only affects read operations. Write operations are always
     /// consistent.
-    ///
-    /// LanceDB Cloud uses eventual consistency under the hood, and is not
-    /// currently configurable.
     pub fn read_consistency_interval(
         mut self,
         read_consistency_interval: std::time::Duration,
@@ -782,57 +685,9 @@ impl ConnectBuilder {
         self
     }
 
-    #[cfg(feature = "remote")]
-    fn apply_env_defaults(
-        env_var_to_remote_storage_option: &[(&str, &str)],
-        options: &mut HashMap<String, String>,
-    ) {
-        for (env_key, opt_key) in env_var_to_remote_storage_option {
-            if let Ok(env_value) = std::env::var(env_key)
-                && !options.contains_key(*opt_key)
-            {
-                options.insert((*opt_key).to_string(), env_value);
-            }
-        }
-    }
-
-    #[cfg(feature = "remote")]
     fn execute_remote(self) -> Result<Connection> {
-        use crate::remote::db::RemoteDatabaseOptions;
-
-        let mut merged_options = self.request.options.clone();
-        Self::apply_env_defaults(&ENV_VARS_TO_STORAGE_OPTS, &mut merged_options);
-        let options = RemoteDatabaseOptions::parse_from_map(&merged_options)?;
-
-        let region = options.region.ok_or_else(|| Error::InvalidInput {
-            message: "A region is required when connecting to LanceDb Cloud".to_string(),
-        })?;
-        let api_key = options.api_key.ok_or_else(|| Error::InvalidInput {
-            message: "An api_key is required when connecting to LanceDb Cloud".to_string(),
-        })?;
-
-        let storage_options = StorageOptions(options.storage_options.clone());
-        let internal = Arc::new(crate::remote::db::RemoteDatabase::try_new(
-            &self.request.uri,
-            &api_key,
-            &region,
-            options.host_override,
-            self.request.client_config,
-            storage_options.into(),
-        )?);
-        Ok(Connection {
-            internal,
-            embedding_registry: self
-                .embedding_registry
-                .unwrap_or_else(|| Arc::new(MemoryRegistry::new())),
-        })
-    }
-
-    #[cfg(not(feature = "remote"))]
-    fn execute_remote(self) -> Result<Connection> {
-        Err(Error::Runtime {
-            message: "cannot connect to LanceDb Cloud unless the 'remote' feature is enabled"
-                .to_string(),
+        Err(Error::InvalidInput {
+            message: "Remote databases (db:// URIs) are not supported".to_string(),
         })
     }
 
@@ -856,8 +711,8 @@ impl ConnectBuilder {
 ///
 /// # Arguments
 ///
-/// * `uri` - URI where the database is located, can be a local directory, supported remote cloud storage,
-///   or a LanceDB Cloud database.  See [ConnectOptions::uri] for a list of accepted formats
+/// * `uri` - URI where the database is located, can be a local directory or supported remote cloud storage.
+///   See [ConnectOptions::uri] for a list of accepted formats
 pub fn connect(uri: &str) -> ConnectBuilder {
     ConnectBuilder::new(uri)
 }
@@ -987,41 +842,6 @@ pub fn connect_namespace(
     ConnectNamespaceBuilder::new(ns_impl, properties)
 }
 
-#[cfg(all(test, feature = "remote"))]
-mod test_utils {
-    use super::*;
-    impl Connection {
-        pub fn new_with_handler<T>(
-            handler: impl Fn(reqwest::Request) -> http::Response<T> + Clone + Send + Sync + 'static,
-        ) -> Self
-        where
-            T: Into<reqwest::Body>,
-        {
-            let internal = Arc::new(crate::remote::db::RemoteDatabase::new_mock(handler));
-            Self {
-                internal,
-                embedding_registry: Arc::new(MemoryRegistry::new()),
-            }
-        }
-
-        pub fn new_with_handler_and_config<T>(
-            handler: impl Fn(reqwest::Request) -> http::Response<T> + Clone + Send + Sync + 'static,
-            config: crate::remote::ClientConfig,
-        ) -> Self
-        where
-            T: Into<reqwest::Body>,
-        {
-            let internal = Arc::new(crate::remote::db::RemoteDatabase::new_mock_with_config(
-                handler, config,
-            ));
-            Self {
-                internal,
-                embedding_registry: Arc::new(MemoryRegistry::new()),
-            }
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use arrow_schema::{DataType, Field, Schema};
@@ -1036,22 +856,6 @@ mod tests {
     async fn test_connect() {
         let tc = new_test_connection().await.unwrap();
         assert_eq!(tc.connection.uri(), tc.uri);
-    }
-
-    #[cfg(feature = "remote")]
-    #[test]
-    fn test_apply_env_defaults() {
-        let env_key = "PATH";
-        let env_val = std::env::var(env_key).expect("PATH should be set in test environment");
-        let opts_key = "test_apply_env_defaults_environment_variable_opts_key";
-
-        let mut options = HashMap::new();
-        ConnectBuilder::apply_env_defaults(&[(env_key, opts_key)], &mut options);
-        assert_eq!(Some(&env_val), options.get(opts_key));
-
-        options.insert(opts_key.to_string(), "EXPLICIT-VALUE".to_string());
-        ConnectBuilder::apply_env_defaults(&[(env_key, opts_key)], &mut options);
-        assert_eq!(Some(&"EXPLICIT-VALUE".to_string()), options.get(opts_key));
     }
 
     #[cfg(not(windows))]
@@ -1148,18 +952,12 @@ mod tests {
         let tc = new_test_connection().await.unwrap();
         let db = tc.connection;
 
-        if tc.is_remote {
-            // All the typical endpoints such as s3:///, file-object-store:///, etc. treat drop_table
-            // as idempotent.
-            assert!(db.drop_table("invalid_table", &[]).await.is_ok());
-        } else {
-            // The behavior of drop_table when using a file:/// endpoint differs from all other
-            // object providers, in that it returns an error when deleting a non-existent table.
-            assert!(matches!(
-                db.drop_table("invalid_table", &[]).await,
-                Err(crate::Error::TableNotFound { .. }),
-            ));
-        }
+        // The behavior of drop_table when using a file:/// endpoint differs from all other
+        // object providers, in that it returns an error when deleting a non-existent table.
+        assert!(matches!(
+            db.drop_table("invalid_table", &[]).await,
+            Err(crate::Error::TableNotFound { .. }),
+        ));
 
         let schema = Arc::new(Schema::new(vec![Field::new("x", DataType::Int32, false)]));
         db.create_empty_table("table1", schema.clone())

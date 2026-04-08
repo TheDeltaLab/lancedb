@@ -8,13 +8,11 @@ use napi_derive::*;
 
 mod connection;
 mod error;
-mod header;
 mod index;
 mod iterator;
 pub mod merge;
 pub mod permutation;
 mod query;
-pub mod remote;
 mod rerankers;
 mod session;
 mod table;
@@ -33,26 +31,13 @@ pub struct ConnectionOptions {
     /// Note: this consistency only applies to read operations. Write operations are
     /// always consistent.
     pub read_consistency_interval: Option<f64>,
-    /// (For LanceDB OSS only): configuration for object storage.
+    /// Configuration for object storage.
     ///
     /// The available options are described at https://lancedb.com/docs/storage/
     pub storage_options: Option<HashMap<String, String>>,
-    /// (For LanceDB OSS only): the session to use for this connection. Holds
+    /// The session to use for this connection. Holds
     /// shared caches and other session-specific state.
     pub session: Option<session::Session>,
-
-    /// (For LanceDB cloud only): configuration for the remote HTTP client.
-    pub client_config: Option<remote::ClientConfig>,
-    /// (For LanceDB cloud only): the API key to use with LanceDB Cloud.
-    ///
-    /// Can also be set via the environment variable `LANCEDB_API_KEY`.
-    pub api_key: Option<String>,
-    /// (For LanceDB cloud only): the region to use for LanceDB cloud.
-    /// Defaults to 'us-east-1'.
-    pub region: Option<String>,
-    /// (For LanceDB cloud only): the host to use for LanceDB cloud. Used
-    /// for testing purposes.
-    pub host_override: Option<String>,
 }
 
 #[napi(object)]

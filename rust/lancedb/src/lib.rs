@@ -30,7 +30,6 @@
 //! - `azure` - Enable Azure Blob Storage object store support.
 //! - `gcs` - Enable Google Cloud Storage object store support.
 //! - `oss` - Enable Alibaba Cloud OSS object store support.
-//! - `remote` - Enable remote client to connect to LanceDB cloud.
 //! - `huggingface` - Enable HuggingFace Hub integration for loading datasets from the Hub.
 //! - `fp16kernels` - Enable FP16 kernels for faster vector search on CPU.
 //!
@@ -48,7 +47,6 @@
 //!
 //! - `/path/to/database` - local database on file system.
 //! - `s3://bucket/path/to/database` or `gs://bucket/path/to/database` - database on cloud object store
-//! - `db://dbname` - Lance Cloud
 //!
 //! You can also use [`ConnectBuilder`] to configure the connection to the database.
 //!
@@ -176,8 +174,6 @@ pub mod ipc;
 #[cfg(feature = "polars")]
 mod polars_arrow_convertors;
 pub mod query;
-#[cfg(feature = "remote")]
-pub mod remote;
 pub mod rerankers;
 pub mod table;
 #[cfg(test)]
