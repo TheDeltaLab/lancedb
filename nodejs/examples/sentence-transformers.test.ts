@@ -3,10 +3,10 @@
 import { expect, test } from "@jest/globals";
 import { withTempDirectory } from "./util.ts";
 
-import * as lancedb from "@lancedb/lancedb";
-import "@lancedb/lancedb/embedding/transformers";
-import { LanceSchema, getRegistry } from "@lancedb/lancedb/embedding";
-import type { EmbeddingFunction } from "@lancedb/lancedb/embedding";
+import * as lancedb from "@delta-ai/lancedb";
+import "@delta-ai/lancedb/embedding/transformers";
+import { LanceSchema, getRegistry } from "@delta-ai/lancedb/embedding";
+import type { EmbeddingFunction } from "@delta-ai/lancedb/embedding";
 import { Utf8 } from "apache-arrow";
 
 test("full text search", async () => {

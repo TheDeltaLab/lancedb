@@ -14,7 +14,6 @@ body:
       label: SDK
       description: Which SDK are you using? This helps us prioritize.
       options:
-        - Python
         - Node
         - Rust
       default: 0

@@ -98,6 +98,14 @@ export interface OptimizeOptions {
    * dataset could be put into a corrupted state.
    */
   deleteUnverified: boolean;
+  /**
+   * If set to true, an error will be returned when there are tagged versions
+   * that are old enough to be cleaned up.
+   *
+   * By default this is false, which means tagged old versions are silently
+   * skipped during pruning.
+   */
+  errorIfTaggedOldVersions: boolean;
 }
 
 export interface Version {
@@ -445,7 +453,7 @@ export abstract class Table {
    * @param {number | string} version The version to checkout, could be version number or tag
    * @example
    * ```typescript
-   * import * as lancedb from "@lancedb/lancedb"
+   * import * as lancedb from "@delta-ai/lancedb"
    * const db = await lancedb.connect("./.lancedb");
    * const table = await db.createTable("my_table", [
    *   { vector: [1.1, 0.9], type: "vector" },
@@ -472,6 +480,42 @@ export abstract class Table {
    * List all the versions of the table
    */
   abstract listVersions(): Promise<Version[]>;
+
+  /**
+   * Get the information of a specific version
+   *
+   * Returns the version details including timestamp and metadata
+   * (row count, file sizes, etc.).
+   *
+   * @param version - The version number to get information for
+   * @returns The version information
+   * @throws If the version does not exist
+   * @example
+   * ```typescript
+   * const currentVersion = await table.version();
+   * const info = await table.getVersionInfo(currentVersion);
+   * console.log(info.version, info.timestamp, info.metadata);
+   * ```
+   */
+  abstract getVersionInfo(version: number): Promise<Version>;
+
+  /**
+   * Find the most recent version whose timestamp is at or before the given time.
+   *
+   * Uses binary search over version numbers so that only O(log N) version
+   * reads are required, making it efficient even with many versions stored
+   * on remote object storage.
+   *
+   * @param date - The cutoff time
+   * @returns The most recent version at or before the given time
+   * @throws If no version exists at or before the given time
+   * @example
+   * ```typescript
+   * const version = await table.getVersionByTime(new Date("2024-01-01"));
+   * console.log(version.version, version.timestamp);
+   * ```
+   */
+  abstract getVersionByTime(date: Date): Promise<Version>;
 
   /**
    * Get a tags manager for this table.
@@ -897,6 +941,33 @@ export class LocalTable extends Table {
     }));
   }
 
+  async getVersionInfo(version: number): Promise<Version> {
+    const info = await this.inner.getVersionInfo(version);
+    return {
+      version: info.version,
+      timestamp: new Date(info.timestamp / 1000),
+      metadata: info.metadata,
+    };
+  }
+
+  async getVersionByTime(date: Date): Promise<Version> {
+    // Date has millisecond precision; version timestamps have microsecond
+    // precision.  Round to the end of the millisecond so that a Date derived
+    // from a version's timestamp still includes that version.
+    const timestampMicros = date.getTime() * 1000 + 999;
+    if (!Number.isSafeInteger(timestampMicros)) {
+      throw new RangeError(
+        "Date is out of range: microsecond timestamp exceeds safe integer precision",
+      );
+    }
+    const info = await this.inner.getVersionByTime(timestampMicros);
+    return {
+      version: info.version,
+      timestamp: new Date(info.timestamp / 1000),
+      metadata: info.metadata,
+    };
+  }
+
   async restore(): Promise<void> {
     await this.inner.restore();
   }
@@ -917,6 +988,7 @@ export class LocalTable extends Table {
     return await this.inner.optimize(
       cleanupOlderThanMs,
       options?.deleteUnverified,
+      options?.errorIfTaggedOldVersions,
     );
   }
 

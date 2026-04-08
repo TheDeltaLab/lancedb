@@ -1,9 +1,6 @@
 name: Rust
 
 on:
-  push:
-    branches:
-      - main
   pull_request:
     paths:
       - Cargo.toml
@@ -84,7 +81,7 @@ jobs:
     # To build all features, we need more disk space than is available
     # on the free OSS github runner. This is mostly due to the the
     # sentence-transformers feature.
-    runs-on: ubuntu-2404-4x-x64
+    runs-on: ubuntu-24.04
     defaults:
       run:
         shell: bash
@@ -107,6 +104,8 @@ jobs:
       - uses: rui314/setup-mold@v1
       - name: Make Swap
         run: |
+          sudo swapoff /swapfile || true
+          sudo rm -f /swapfile
           sudo fallocate -l 16G /swapfile
           sudo chmod 600 /swapfile
           sudo mkswap /swapfile
@@ -125,10 +124,7 @@ jobs:
 
   macos:
     timeout-minutes: 30
-    strategy:
-      matrix:
-        mac-runner: ["macos-14", "macos-15"]
-    runs-on: "${{ matrix.mac-runner }}"
+    runs-on: "macos-15"
     defaults:
       run:
         shell: bash
@@ -151,34 +147,6 @@ jobs:
             | jq -r '.packages[] | .features | keys | .[]' \
             | grep -v s3-test | sort | uniq | paste -s -d "," -`
           cargo test --profile ci --features $ALL_FEATURES --locked
-
-  windows:
-    runs-on: windows-2022
-    strategy:
-      matrix:
-        target:
-          - x86_64-pc-windows-msvc
-          - aarch64-pc-windows-msvc
-    defaults:
-      run:
-        working-directory: rust/lancedb
-    steps:
-      - uses: actions/checkout@v4
-      - name: Set target
-        run: rustup target add ${{ matrix.target }}
-      - uses: Swatinem/rust-cache@v2
-      - name: Install Protoc v21.12
-        run: choco install --no-progress protoc
-      - name: Build
-        run: |
-          $env:VCPKG_ROOT = $env:VCPKG_INSTALLATION_ROOT
-          cargo build --profile ci --features aws,remote --tests --locked --target ${{ matrix.target }}
-      - name: Run tests
-        # Can only run tests when target matches host
-        if: ${{ matrix.target == 'x86_64-pc-windows-msvc' }}
-        run: |
-          $env:VCPKG_ROOT = $env:VCPKG_INSTALLATION_ROOT
-          cargo test --profile ci --features aws,remote --locked
 
   msrv:
     # Check the minimum supported Rust version

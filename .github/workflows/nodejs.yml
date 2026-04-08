@@ -1,9 +1,6 @@
 name: NodeJS (NAPI)
 
 on:
-  push:
-    branches:
-      - main
   pull_request:
     paths:
       - Cargo.toml
@@ -112,13 +109,12 @@ jobs:
       working-directory: nodejs/examples
       run: npm ci
     - name: Test examples
-      working-directory: ./
+      working-directory: nodejs/examples
       env:
         OPENAI_API_KEY: test
         OPENAI_BASE_URL: http://0.0.0.0:8000
       run: |
-        python ci/mock_openai.py &
-        cd nodejs/examples
+        node ../../ci/mock_openai.js &
         npm test
     - name: Check docs
       run: |
@@ -134,7 +130,7 @@ jobs:
         fi
   macos:
     timeout-minutes: 30
-    runs-on: "macos-14"
+    runs-on: "macos-15"
     defaults:
       run:
         shell: bash

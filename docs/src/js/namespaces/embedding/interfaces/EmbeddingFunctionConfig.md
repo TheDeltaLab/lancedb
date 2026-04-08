@@ -1,8 +1,8 @@
-[**@lancedb/lancedb**](../../../README.md) • **Docs**
+[**@delta-ai/lancedb**](../../../README.md) • **Docs**
 
 ***
 
-[@lancedb/lancedb](../../../globals.md) / [embedding](../README.md) / EmbeddingFunctionConfig
+[@delta-ai/lancedb](../../../globals.md) / [embedding](../README.md) / EmbeddingFunctionConfig
 
 # Interface: EmbeddingFunctionConfig
 

@@ -1,12 +1,7 @@
 # Release process
 
-There are five total packages we release. Four are the `lancedb` packages
-for Python, Rust, Java, and Node.js. The other one is the legacy `vectordb`
-package node.js.
-
-The Python package is versioned and released separately from the Rust, Java, and Node.js
-ones. For Node.js the release process is shared between `lancedb` and
-`vectordb` for now.
+There are three packages we release: the `lancedb` Rust crate, and the Node.js
+`@delta-ai/lancedb` npm package, plus the legacy `vectordb` package.
 
 ## Preview releases
 
@@ -27,20 +22,13 @@ The release process uses a handful of GitHub actions to automate the process.
   ┌─────────────────────┐
   │Create Release Commit│
   └─┬───────────────────┘
-    │                           ┌────────────┐ ┌──►Python GH Release
-    ├──►(tag) python-vX.Y.Z ───►│PyPI Publish├─┤
-    │                           └────────────┘ └──►Python Wheels
-    │
     │                           ┌───────────┐
     └──►(tag) vX.Y.Z ───┬──────►│NPM Publish├──┬──►Rust/Node GH Release
-                        │       └───────────┘  │
-                        │                      └──►NPM Packages
-                        │       ┌─────────────┐
-                        ├──────►│Cargo Publish├───►Cargo Release
-                        │       └─────────────┘
-                        │       ┌─────────────┐
-                        └──────►│Maven Publish├───►Java Maven Repo Release
-                                └─────────────┘
+                         │       └───────────┘  │
+                         │                      └──►NPM Packages
+                         │       ┌─────────────┐
+                         └──────►│Cargo Publish├───►Cargo Release
+                                 └─────────────┘
 ```
 
 To start a release, trigger a `Create Release Commit` action from

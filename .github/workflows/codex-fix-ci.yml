@@ -23,7 +23,7 @@ permissions:
 
 jobs:
   fix-ci:
-    runs-on: warp-ubuntu-latest-x64-4x
+    runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
       CC: clang
@@ -62,22 +62,6 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y protobuf-compiler libssl-dev
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Install Python dependencies
-        run: |
-          pip install maturin ruff pytest pyarrow pandas polars
-
-      - name: Set up Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '11'
-          cache: maven
 
       - name: Install Node.js dependencies for TypeScript bindings
         run: |
@@ -135,8 +119,6 @@ jobs:
              - Run "cargo clippy --workspace --tests --all-features -- -D warnings" to check for issues
              - Run ONLY the specific failing tests to confirm they pass now:
                - For Rust test failures: Run the specific test with "cargo test -p <crate> <test_name>"
-               - For Python test failures: Build with "cd python && maturin develop" then run "pytest <specific_test_file>::<test_name>"
-               - For Java test failures: Run "cd java && mvn test -Dtest=<TestClass>#<testMethod>"
                - For TypeScript test failures: Run "cd nodejs && npm run build && npm test -- --testNamePattern='<test_name>'"
                - Do NOT run the full test suite - only run the tests that were failing
 

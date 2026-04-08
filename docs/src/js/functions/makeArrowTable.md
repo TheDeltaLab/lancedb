@@ -1,8 +1,8 @@
-[**@lancedb/lancedb**](../README.md) • **Docs**
+[**@delta-ai/lancedb**](../README.md) • **Docs**
 
 ***
 
-[@lancedb/lancedb](../globals.md) / makeArrowTable
+[@delta-ai/lancedb](../globals.md) / makeArrowTable
 
 # Function: makeArrowTable()
 

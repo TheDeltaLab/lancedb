@@ -6,7 +6,6 @@ repo_name: lancedb/lancedb
 docs_dir: src
 watch:
   - src
-  - ../python/python
 
 theme:
   name: "material"
@@ -43,35 +42,6 @@ theme:
 plugins:
   - search
   - autorefs
-  - mkdocstrings:
-      handlers:
-        python:
-          # Ensure the handler points to the real package root
-          # so it reads local sources at python/python/lancedb
-          paths: [../python/python]
-          options:
-            docstring_style: numpy
-            heading_level: 3
-            show_signature_annotations: true
-            show_root_heading: true
-            show_docstring_examples: true
-            show_docstring_attributes: false
-            show_docstring_other_parameters: true
-            show_symbol_type_heading: true
-            show_labels: false
-            show_if_no_docstring: true
-            show_source: false
-            members_order: source
-            docstring_section_style: list
-            signature_crossrefs: true
-            separate_signature: true
-            filters:
-              - "!^_"
-          import:
-            # for cross references
-            - https://arrow.apache.org/docs/objects.inv
-            - https://pandas.pydata.org/docs/objects.inv
-            - https://docs.pydantic.dev/latest/objects.inv
   - render_swagger:
       allow_arbitrary_locations: true
 #   - redirects:
@@ -116,9 +86,6 @@ markdown_extensions:
   - abbr
   - attr_list
   - pymdownx.snippets
-  - pymdownx.emoji:
-      emoji_index: !!python/name:material.extensions.emoji.twemoji
-      emoji_generator: !!python/name:material.extensions.emoji.to_svg
   - markdown.extensions.toc:
       toc_depth: 4
       permalink: true
@@ -127,10 +94,10 @@ markdown_extensions:
 nav:
   - Documentation:
       - SDK Reference: index.md
-      - Python: python/python.md
       - Javascript/TypeScript: js/globals.md
-      - Java: java/java.md
       - Rust: https://docs.rs/lancedb/latest/lancedb/index.html
+  - Contributing:
+      - Upstream Sync Workflow: upstream-sync.md
 
 extra_css:
   - styles/global.css

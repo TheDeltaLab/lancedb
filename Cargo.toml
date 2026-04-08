@@ -1,7 +1,5 @@
 [workspace]
-members = ["rust/lancedb", "nodejs", "python"]
-# Python package needs to be built by maturin.
-exclude = ["python"]
+members = ["rust/lancedb", "nodejs"]
 resolver = "2"
 
 [workspace.package]
@@ -66,6 +64,10 @@ regex = "1.10"
 lazy_static = "1"
 semver = "1.0.25"
 chrono = "0.4"
+
+[workspace.metadata.upstream]
+repository = "https://github.com/lancedb/lancedb"
+version = "0.28.0-beta.1"
 
 [profile.ci]
 debug = "line-tables-only"

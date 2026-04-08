@@ -260,7 +260,7 @@ export class QueryBase<
    * Generates an explanation of the query execution plan.
    *
    * @example
-   * import * as lancedb from "@lancedb/lancedb"
+   * import * as lancedb from "@delta-ai/lancedb"
    * const db = await lancedb.connect("./.lancedb");
    * const table = await db.createTable("my_table", [
    *   { vector: [1.1, 0.9], id: "1" },
@@ -285,7 +285,7 @@ export class QueryBase<
    * and includes metrics such as elapsed time, rows processed, and I/O statistics.
    *
    * @example
-   * import * as lancedb from "@lancedb/lancedb"
+   * import * as lancedb from "@delta-ai/lancedb"
    *
    * const db = await lancedb.connect("./.lancedb");
    * const table = await db.createTable("my_table", [

@@ -1,8 +1,8 @@
-[**@lancedb/lancedb**](../README.md) • **Docs**
+[**@delta-ai/lancedb**](../README.md) • **Docs**
 
 ***
 
-[@lancedb/lancedb](../globals.md) / Table
+[@delta-ai/lancedb](../globals.md) / Table
 
 # Class: `abstract` Table
 
@@ -137,7 +137,7 @@ wish to return to standard mode, call `checkoutLatest`.
 #### Example
 
 ```typescript
-import * as lancedb from "@lancedb/lancedb"
+import * as lancedb from "@delta-ai/lancedb"
 const db = await lancedb.connect("./.lancedb");
 const table = await db.createTable("my_table", [
   { vector: [1.1, 0.9], type: "vector" },
@@ -342,6 +342,78 @@ Drop an index from the table.
 #### Returns
 
 `Promise`&lt;`void`&gt;
+
+***
+
+### getVersionByTime()
+
+```ts
+abstract getVersionByTime(date): Promise<Version>
+```
+
+Find the most recent version whose timestamp is at or before the given time.
+
+Uses binary search over version numbers so that only O(log N) version
+reads are required, making it efficient even with many versions stored
+on remote object storage.
+
+#### Parameters
+
+* **date**: `Date`
+    The cutoff time
+
+#### Returns
+
+`Promise`&lt;[`Version`](../interfaces/Version.md)&gt;
+
+The most recent version at or before the given time
+
+#### Throws
+
+If no version exists at or before the given time
+
+#### Example
+
+```typescript
+const version = await table.getVersionByTime(new Date("2024-01-01"));
+console.log(version.version, version.timestamp);
+```
+
+***
+
+### getVersionInfo()
+
+```ts
+abstract getVersionInfo(version): Promise<Version>
+```
+
+Get the information of a specific version
+
+Returns the version details including timestamp and metadata
+(row count, file sizes, etc.).
+
+#### Parameters
+
+* **version**: `number`
+    The version number to get information for
+
+#### Returns
+
+`Promise`&lt;[`Version`](../interfaces/Version.md)&gt;
+
+The version information
+
+#### Throws
+
+If the version does not exist
+
+#### Example
+
+```typescript
+const currentVersion = await table.version();
+const info = await table.getVersionInfo(currentVersion);
+console.log(info.version, info.timestamp, info.metadata);
+```
 
 ***
 

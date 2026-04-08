@@ -9,9 +9,7 @@ unreleased features.
 ## Building the docs
 
 ### Setup
-1. Install LanceDB Python. See setup in [Python contributing guide](../python/CONTRIBUTING.md).
-   Run `make develop` to install the Python package.
-2. Install documentation dependencies. From LanceDB repo root: `pip install -r docs/requirements.txt`
+1. Install documentation dependencies. From LanceDB repo root: `pip install -r docs/requirements.txt`
 
 ### Preview the docs
 
@@ -35,19 +33,11 @@ run as part of our test suites.
 
 You can see the tests are at:
 
-* Python: `python/python/tests/docs`
 * Typescript: `nodejs/examples/`
-
-### Checking python examples
-
-```shell
-cd python
-pytest -vv python/tests/docs
-```
 
 ### Checking typescript examples
 
-The `@lancedb/lancedb` package must be built before running the tests:
+The `@delta-ai/lancedb` package must be built before running the tests:
 
 ```shell
 pushd nodejs
@@ -67,13 +57,6 @@ popd
 ```
 
 ## API documentation
-
-### Python
-
-The Python API documentation is organized based on the file `docs/src/python/python.md`.
-We manually add entries there so we can control the organization of the reference page.
-**However, this means any new types must be manually added to the file.** No additional
-steps are needed to generate the API documentation.
 
 ### Typescript
 

@@ -81,7 +81,7 @@ use crate::index::waiter::wait_for_index;
 #[cfg(feature = "remote")]
 pub(crate) use add_data::PreprocessingOutput;
 pub use add_data::{AddDataBuilder, AddDataMode, AddResult, NaNVectorBehavior};
-pub use chrono::Duration;
+pub use chrono::{DateTime, Duration, Utc};
 pub use delete::DeleteResult;
 use futures::future::join_all;
 pub use lance::dataset::refs::{TagContents, Tags as LanceTags};
@@ -324,6 +324,50 @@ pub trait BaseTable: std::fmt::Display + std::fmt::Debug + Send + Sync {
     async fn restore(&self) -> Result<()>;
     /// List the versions of the table.
     async fn list_versions(&self) -> Result<Vec<Version>>;
+    /// Get the information of a specific version.
+    async fn get_version_info(&self, version: u64) -> Result<Version> {
+        let versions = self.list_versions().await?;
+        versions
+            .into_iter()
+            .find(|v| v.version == version)
+            .ok_or_else(|| Error::InvalidInput {
+                message: format!("Version {} not found", version),
+            })
+    }
+    /// Find the most recent version whose timestamp is at or before the given time.
+    ///
+    /// Uses binary search with [`Self::get_version_info`] to minimise the number of
+    /// version reads. Assumes version numbers are contiguous (1, 2, ..., N).
+    async fn get_version_by_time(&self, timestamp: DateTime<Utc>) -> Result<Version> {
+        let latest = self.version().await?;
+        let mut lo = 1u64;
+        let mut hi = latest;
+        let mut result: Option<Version> = None;
+
+        while lo <= hi {
+            let mid = lo + (hi - lo) / 2;
+            match self.get_version_info(mid).await {
+                Ok(v) => {
+                    if v.timestamp <= timestamp {
+                        result = Some(v);
+                        lo = mid + 1;
+                    } else {
+                        hi = mid - 1;
+                    }
+                }
+                Err(Error::InvalidInput { .. }) => {
+                    // Version not found (gap after cleanup), search upper half
+                    // since pruned versions are typically at the low end.
+                    lo = mid + 1;
+                }
+                Err(e) => return Err(e),
+            }
+        }
+
+        result.ok_or_else(|| Error::InvalidInput {
+            message: format!("No version exists at or before {}", timestamp),
+        })
+    }
     /// Get the table definition.
     async fn table_definition(&self) -> Result<TableDefinition>;
     /// Get the table URI (storage location)
@@ -1086,6 +1130,46 @@ impl Table {
     /// List all the versions of the table
     pub async fn list_versions(&self) -> Result<Vec<Version>> {
         self.inner.list_versions().await
+    }
+
+    /// Get the information of a specific version
+    ///
+    /// Returns the [`Version`] details for the given version number, including
+    /// timestamp and metadata (row count, file sizes, etc.).
+    ///
+    /// ```
+    /// use lancedb::Table;
+    ///
+    /// # async fn example(table: &Table) -> Result<(), Box<dyn std::error::Error>> {
+    /// let current_version = table.version().await?;
+    /// let info = table.get_version_info(current_version).await?;
+    /// println!("Version {} created at {:?}", info.version, info.timestamp);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn get_version_info(&self, version: u64) -> Result<Version> {
+        self.inner.get_version_info(version).await
+    }
+
+    /// Find the most recent version whose timestamp is at or before the given time.
+    ///
+    /// Uses binary search over version numbers so that only O(log N) version
+    /// reads are required, making it efficient even with many versions stored
+    /// on remote object storage.
+    ///
+    /// ```
+    /// use lancedb::table::{DateTime, Utc};
+    /// use lancedb::Table;
+    ///
+    /// # async fn example(table: &Table) -> Result<(), Box<dyn std::error::Error>> {
+    /// let cutoff = Utc::now();
+    /// let version = table.get_version_by_time(cutoff).await?;
+    /// println!("Version {} at {:?}", version.version, version.timestamp);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn get_version_by_time(&self, timestamp: DateTime<Utc>) -> Result<Version> {
+        self.inner.get_version_by_time(timestamp).await
     }
 
     /// List all indices that have been created with [`Self::create_index`]
@@ -2192,6 +2276,22 @@ impl BaseTable for NativeTable {
 
     async fn list_versions(&self) -> Result<Vec<Version>> {
         Ok(self.dataset.get().await?.versions().await?)
+    }
+
+    async fn get_version_info(&self, version: u64) -> Result<Version> {
+        let dataset = self.dataset.get().await?;
+        let versioned = dataset
+            .checkout_version(version)
+            .await
+            .map_err(|e| match &e {
+                lance::Error::NotFound { .. }
+                | lance::Error::DatasetNotFound { .. }
+                | lance::Error::VersionNotFound { .. } => Error::InvalidInput {
+                    message: format!("Version {} not found", version),
+                },
+                _ => e.into(),
+            })?;
+        Ok(versioned.version())
     }
 
     async fn restore(&self) -> Result<()> {
@@ -3892,5 +3992,362 @@ mod tests {
         let result = table.list_indices().await.unwrap();
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].index_type, crate::index::IndexType::Bitmap);
+    }
+
+    #[tokio::test]
+    async fn test_get_version_info() {
+        let tmp_dir = tempdir().unwrap();
+        let uri = tmp_dir.path().to_str().unwrap();
+
+        let batch = make_test_batches();
+        let reader: Box<dyn RecordBatchReader + Send> = Box::new(RecordBatchIterator::new(
+            vec![Ok(batch.clone())],
+            batch.schema(),
+        ));
+
+        let conn = connect(uri).execute().await.unwrap();
+        let table = conn
+            .create_table("my_table", reader)
+            .execute()
+            .await
+            .unwrap();
+
+        let current_version = table.version().await.unwrap();
+        let info = table.get_version_info(current_version).await.unwrap();
+        assert_eq!(info.version, current_version);
+    }
+
+    #[tokio::test]
+    async fn test_get_version_info_not_found() {
+        let tmp_dir = tempdir().unwrap();
+        let uri = tmp_dir.path().to_str().unwrap();
+
+        let batch = make_test_batches();
+        let reader: Box<dyn RecordBatchReader + Send> = Box::new(RecordBatchIterator::new(
+            vec![Ok(batch.clone())],
+            batch.schema(),
+        ));
+
+        let conn = connect(uri).execute().await.unwrap();
+        let table = conn
+            .create_table("my_table", reader)
+            .execute()
+            .await
+            .unwrap();
+
+        let result = table.get_version_info(99999).await;
+        assert!(matches!(result.unwrap_err(), Error::InvalidInput { .. }));
+    }
+
+    #[tokio::test]
+    async fn test_get_version_by_time() {
+        let tmp_dir = tempdir().unwrap();
+        let uri = tmp_dir.path().to_str().unwrap();
+
+        let batch = make_test_batches();
+        let reader: Box<dyn RecordBatchReader + Send> = Box::new(RecordBatchIterator::new(
+            vec![Ok(batch.clone())],
+            batch.schema(),
+        ));
+
+        let conn = connect(uri).execute().await.unwrap();
+        let table = conn
+            .create_table("my_table", reader)
+            .execute()
+            .await
+            .unwrap();
+
+        let v1 = table.version().await.unwrap();
+        let v1_info = table.get_version_info(v1).await.unwrap();
+
+        // Add data to create v2
+        let batch2 = make_test_batches();
+        let reader2: Box<dyn RecordBatchReader + Send> = Box::new(RecordBatchIterator::new(
+            vec![Ok(batch2.clone())],
+            batch2.schema(),
+        ));
+        table.add(reader2).execute().await.unwrap();
+        let v2 = table.version().await.unwrap();
+        let v2_info = table.get_version_info(v2).await.unwrap();
+
+        // Query at v1's timestamp should return v1
+        let result = table.get_version_by_time(v1_info.timestamp).await.unwrap();
+        assert_eq!(result.version, v1);
+
+        // Query at v2's timestamp should return v2
+        let result = table.get_version_by_time(v2_info.timestamp).await.unwrap();
+        assert_eq!(result.version, v2);
+
+        // Query far in the future should return latest
+        let future = Utc::now() + chrono::Duration::days(365);
+        let result = table.get_version_by_time(future).await.unwrap();
+        assert_eq!(result.version, v2);
+
+        // Query far in the past should error
+        let past = DateTime::parse_from_rfc3339("2000-01-01T00:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let result = table.get_version_by_time(past).await;
+        assert!(matches!(result.unwrap_err(), Error::InvalidInput { .. }));
+    }
+
+    #[tokio::test]
+    async fn test_get_version_by_time_after_prune() {
+        let tmp_dir = tempdir().unwrap();
+        let uri = tmp_dir.path().to_str().unwrap();
+
+        let batch = make_test_batches();
+        let reader: Box<dyn RecordBatchReader + Send> = Box::new(RecordBatchIterator::new(
+            vec![Ok(batch.clone())],
+            batch.schema(),
+        ));
+
+        let conn = connect(uri).execute().await.unwrap();
+        let table = conn
+            .create_table("my_table", reader)
+            .execute()
+            .await
+            .unwrap();
+
+        // Create v2
+        let batch2 = make_test_batches();
+        let reader2: Box<dyn RecordBatchReader + Send> = Box::new(RecordBatchIterator::new(
+            vec![Ok(batch2.clone())],
+            batch2.schema(),
+        ));
+        table.add(reader2).execute().await.unwrap();
+
+        // Create v3
+        let batch3 = make_test_batches();
+        let reader3: Box<dyn RecordBatchReader + Send> = Box::new(RecordBatchIterator::new(
+            vec![Ok(batch3.clone())],
+            batch3.schema(),
+        ));
+        table.add(reader3).execute().await.unwrap();
+
+        let v3 = table.version().await.unwrap();
+        assert_eq!(v3, 3);
+
+        let v3_info = table.get_version_info(v3).await.unwrap();
+
+        // Prune old versions (v1, v2) — this creates gaps in version numbers
+        table
+            .optimize(OptimizeAction::Prune {
+                older_than: Some(chrono::Duration::zero()),
+                delete_unverified: Some(true),
+                error_if_tagged_old_versions: None,
+            })
+            .await
+            .unwrap();
+
+        // v1 and v2 should no longer be accessible
+        assert!(table.get_version_info(1).await.is_err());
+        assert!(table.get_version_info(2).await.is_err());
+
+        // get_version_by_time should still find v3 despite the gaps
+        let result = table.get_version_by_time(v3_info.timestamp).await.unwrap();
+        assert_eq!(result.version, v3);
+
+        // Future time should also return v3
+        let future = Utc::now() + chrono::Duration::days(365);
+        let result = table.get_version_by_time(future).await.unwrap();
+        assert_eq!(result.version, v3);
+    }
+
+    /// A mock table that tracks how many times `get_version_info` is called,
+    /// used to verify the binary search in `get_version_by_time` is efficient.
+    #[derive(Debug)]
+    struct MockVersionTable {
+        num_versions: u64,
+        base_time: chrono::DateTime<chrono::Utc>,
+        read_count: std::sync::atomic::AtomicU64,
+    }
+
+    impl std::fmt::Display for MockVersionTable {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "MockVersionTable({})", self.num_versions)
+        }
+    }
+
+    #[async_trait]
+    impl BaseTable for MockVersionTable {
+        fn as_any(&self) -> &dyn std::any::Any {
+            self
+        }
+        fn name(&self) -> &str {
+            "mock"
+        }
+        fn namespace(&self) -> &[String] {
+            &[]
+        }
+        fn id(&self) -> &str {
+            "mock"
+        }
+        async fn version(&self) -> Result<u64> {
+            Ok(self.num_versions)
+        }
+        async fn get_version_info(&self, version: u64) -> Result<Version> {
+            self.read_count
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            if version < 1 || version > self.num_versions {
+                return Err(Error::InvalidInput {
+                    message: format!("Version {} not found", version),
+                });
+            }
+            Ok(Version {
+                version,
+                timestamp: self.base_time + chrono::Duration::seconds(version as i64),
+                metadata: Default::default(),
+            })
+        }
+        async fn list_versions(&self) -> Result<Vec<Version>> {
+            unimplemented!("not needed for binary search test")
+        }
+        async fn schema(&self) -> Result<SchemaRef> {
+            unimplemented!()
+        }
+        async fn count_rows(&self, _filter: Option<Filter>) -> Result<usize> {
+            unimplemented!()
+        }
+        async fn create_plan(
+            &self,
+            _query: &AnyQuery,
+            _options: QueryExecutionOptions,
+        ) -> Result<Arc<dyn ExecutionPlan>> {
+            unimplemented!()
+        }
+        async fn query(
+            &self,
+            _query: &AnyQuery,
+            _options: QueryExecutionOptions,
+        ) -> Result<DatasetRecordBatchStream> {
+            unimplemented!()
+        }
+        async fn analyze_plan(
+            &self,
+            _query: &AnyQuery,
+            _options: QueryExecutionOptions,
+        ) -> Result<String> {
+            unimplemented!()
+        }
+        async fn add(&self, _add: AddDataBuilder) -> Result<AddResult> {
+            unimplemented!()
+        }
+        async fn delete(&self, _predicate: &str) -> Result<DeleteResult> {
+            unimplemented!()
+        }
+        async fn update(&self, _update: UpdateBuilder) -> Result<UpdateResult> {
+            unimplemented!()
+        }
+        async fn create_index(&self, _index: IndexBuilder) -> Result<()> {
+            unimplemented!()
+        }
+        async fn list_indices(&self) -> Result<Vec<IndexConfig>> {
+            unimplemented!()
+        }
+        async fn drop_index(&self, _name: &str) -> Result<()> {
+            unimplemented!()
+        }
+        async fn prewarm_index(&self, _name: &str) -> Result<()> {
+            unimplemented!()
+        }
+        async fn prewarm_data(&self, _columns: Option<Vec<String>>) -> Result<()> {
+            unimplemented!()
+        }
+        async fn index_stats(&self, _index_name: &str) -> Result<Option<IndexStatistics>> {
+            unimplemented!()
+        }
+        async fn merge_insert(
+            &self,
+            _params: MergeInsertBuilder,
+            _new_data: Box<dyn RecordBatchReader + Send>,
+        ) -> Result<MergeResult> {
+            unimplemented!()
+        }
+        async fn tags(&self) -> Result<Box<dyn Tags + '_>> {
+            unimplemented!()
+        }
+        async fn optimize(&self, _action: OptimizeAction) -> Result<OptimizeStats> {
+            unimplemented!()
+        }
+        async fn add_columns(
+            &self,
+            _transforms: NewColumnTransform,
+            _read_columns: Option<Vec<String>>,
+        ) -> Result<AddColumnsResult> {
+            unimplemented!()
+        }
+        async fn alter_columns(
+            &self,
+            _alterations: &[ColumnAlteration],
+        ) -> Result<AlterColumnsResult> {
+            unimplemented!()
+        }
+        async fn drop_columns(&self, _columns: &[&str]) -> Result<DropColumnsResult> {
+            unimplemented!()
+        }
+        async fn checkout(&self, _version: u64) -> Result<()> {
+            unimplemented!()
+        }
+        async fn checkout_tag(&self, _tag: &str) -> Result<()> {
+            unimplemented!()
+        }
+        async fn checkout_latest(&self) -> Result<()> {
+            unimplemented!()
+        }
+        async fn restore(&self) -> Result<()> {
+            unimplemented!()
+        }
+        async fn table_definition(&self) -> Result<TableDefinition> {
+            unimplemented!()
+        }
+        async fn uri(&self) -> Result<String> {
+            unimplemented!()
+        }
+        #[allow(deprecated)]
+        async fn storage_options(&self) -> Option<HashMap<String, String>> {
+            unimplemented!()
+        }
+        async fn initial_storage_options(&self) -> Option<HashMap<String, String>> {
+            unimplemented!()
+        }
+        async fn latest_storage_options(&self) -> Result<Option<HashMap<String, String>>> {
+            unimplemented!()
+        }
+        async fn wait_for_index(
+            &self,
+            _index_names: &[&str],
+            _timeout: std::time::Duration,
+        ) -> Result<()> {
+            unimplemented!()
+        }
+        async fn stats(&self) -> Result<TableStatistics> {
+            unimplemented!()
+        }
+    }
+
+    #[tokio::test]
+    async fn test_get_version_by_time_binary_search_efficiency() {
+        let num_versions = 1000u64;
+        let base_time = chrono::Utc::now() - chrono::Duration::seconds(num_versions as i64 + 1);
+        let mock = MockVersionTable {
+            num_versions,
+            base_time,
+            read_count: std::sync::atomic::AtomicU64::new(0),
+        };
+
+        // Query for the version at the midpoint
+        let target_version = 500u64;
+        let target_time = base_time + chrono::Duration::seconds(target_version as i64);
+        let result = mock.get_version_by_time(target_time).await.unwrap();
+        assert_eq!(result.version, target_version);
+
+        let reads = mock.read_count.load(std::sync::atomic::Ordering::Relaxed);
+        // Binary search on 1000 versions should need at most log2(1000) ≈ 10 reads.
+        // We allow up to 20 to leave some margin.
+        assert!(
+            reads <= 20,
+            "Binary search read {reads} manifests for {num_versions} versions, expected <= 20"
+        );
     }
 }

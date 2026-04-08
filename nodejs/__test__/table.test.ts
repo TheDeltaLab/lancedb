@@ -1548,6 +1548,111 @@ describe("when dealing with versioning", () => {
       "checkout before running restore",
     );
   });
+
+  it("can get version info", async () => {
+    const con = await connect(tmpDir.name);
+    const table = await con.createTable("vectors", [
+      { id: 1n, vector: [0.1, 0.2] },
+    ]);
+    const version1 = await table.version();
+
+    // Get current version info
+    const info1 = await table.getVersionInfo(version1);
+    expect(info1.version).toBe(version1);
+    expect(info1.timestamp).toBeInstanceOf(Date);
+    expect(info1.metadata).toBeDefined();
+
+    // Add data to create a new version
+    await table.add([{ id: 2n, vector: [0.3, 0.4] }]);
+    const version2 = await table.version();
+    expect(version2).toBeGreaterThan(version1);
+
+    // Get new version info
+    const info2 = await table.getVersionInfo(version2);
+    expect(info2.version).toBe(version2);
+
+    // Can still get old version info
+    const info1Again = await table.getVersionInfo(version1);
+    expect(info1Again.version).toBe(version1);
+
+    // Non-existent version should throw
+    await expect(table.getVersionInfo(99999)).rejects.toThrow();
+  });
+
+  it("can get version by time", async () => {
+    const con = await connect(tmpDir.name);
+    const table = await con.createTable("vectors_by_time", [
+      { id: 1n, vector: [0.1, 0.2] },
+    ]);
+    const version1 = await table.version();
+    const info1 = await table.getVersionInfo(version1);
+
+    // Add data to create a new version
+    await table.add([{ id: 2n, vector: [0.3, 0.4] }]);
+    const version2 = await table.version();
+    const info2 = await table.getVersionInfo(version2);
+
+    // Exact v1 timestamp should return v1
+    const result1 = await table.getVersionByTime(info1.timestamp);
+    expect(result1.version).toBe(version1);
+
+    // Exact v2 timestamp should return v2
+    const result2 = await table.getVersionByTime(info2.timestamp);
+    expect(result2.version).toBe(version2);
+
+    // Far future should return latest
+    const futureResult = await table.getVersionByTime(new Date("2099-01-01"));
+    expect(futureResult.version).toBe(version2);
+
+    // Far past should throw
+    await expect(
+      table.getVersionByTime(new Date("2000-01-01")),
+    ).rejects.toThrow();
+  });
+
+  it("can get version by time after prune", async () => {
+    const con = await connect(tmpDir.name, {
+      readConsistencyInterval: 0,
+    });
+    const table = await con.createTable("vectors_prune_time", [
+      { id: 1n, vector: [0.1, 0.2] },
+    ]);
+
+    // Create v2 and v3
+    await table.add([{ id: 2n, vector: [0.3, 0.4] }]);
+    await table.add([{ id: 3n, vector: [0.5, 0.6] }]);
+    expect(await table.version()).toBe(3);
+
+    // Record v3's timestamp before prune
+    const info3 = await table.getVersionInfo(3);
+
+    // Prune old versions — optimize may create additional versions internally
+    // (compaction + prune), so the surviving version number may be > 3
+    await table.optimize({
+      cleanupOlderThan: new Date(),
+      deleteUnverified: true,
+    });
+
+    // After prune, only the latest version survives; old ones are gone
+    const latestVersion = await table.version();
+    const latestInfo = await table.getVersionInfo(latestVersion);
+    expect(latestVersion).toBeGreaterThanOrEqual(3);
+
+    // v1 and v2 should be gone
+    await expect(table.getVersionInfo(1)).rejects.toThrow();
+    await expect(table.getVersionInfo(2)).rejects.toThrow();
+
+    // getVersionByTime at the latest version's timestamp should find it
+    const result = await table.getVersionByTime(latestInfo.timestamp);
+    expect(result.version).toBe(latestVersion);
+
+    // Future time should return the latest version
+    const futureResult = await table.getVersionByTime(new Date("2099-01-01"));
+    expect(futureResult.version).toBe(latestVersion);
+
+    // A time before all remaining versions should error
+    await expect(table.getVersionByTime(info3.timestamp)).rejects.toThrow();
+  });
 });
 
 describe("when dealing with tags", () => {
