@@ -112,7 +112,7 @@ gh pr create --base main --head sync/merge-$(date +%Y-%m-%d) \
 
 ## Automated Workflow
 
-A GitHub Actions workflow (`.github/workflows/upstream-sync.yml`) runs daily at 09:07 UTC to automate the initial sync steps.
+A GitHub Actions workflow (`.github/workflows/upstream-sync.yml`) runs every Monday at 09:07 UTC to automate the initial sync steps.
 
 ### What it does
 
