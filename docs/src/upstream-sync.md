@@ -68,12 +68,20 @@ git push origin sync/merge-YYYY-MM-DD
 
 ### Step 4: Review and merge the PR
 
-Open a Pull Request from `sync/merge-YYYY-MM-DD` into `main`:
+Open a Pull Request from `sync/merge-YYYY-MM-DD` into `main`.
+
+The PR body **must** list every upstream PR included in the sync, using full
+URLs so reviewers can trace each change back to the original discussion:
 
 ```bash
 gh pr create --base main --head sync/merge-YYYY-MM-DD \
   --title "sync: merge upstream YYYY-MM-DD" \
-  --body "Merge upstream lancedb/lancedb changes into main."
+  --body "Merge upstream lancedb/lancedb changes into main.
+
+Upstream PRs included:
+- https://github.com/lancedb/lancedb/pull/XXXX
+- https://github.com/lancedb/lancedb/pull/YYYY
+"
 ```
 
 Review checklist:
