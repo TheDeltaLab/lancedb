@@ -28,7 +28,7 @@ git fetch upstream
 
 # Update the sync branch
 git checkout sync
-git merge upstream/main
+git merge --ff-only upstream/main
 git push origin sync
 ```
 
@@ -136,4 +136,4 @@ The workflow can also be triggered manually via `workflow_dispatch` from the Act
 
 - We only maintain **Rust core** (`rust/`) and **Node.js bindings** (`nodejs/`). Ignore upstream changes to `python/` and `java/`.
 - Always review the upstream [release changelog](https://github.com/lancedb/lancedb/releases) before syncing to understand what changed.
-- See [CLAUDE.md](https://github.com/user/repo/blob/main/CLAUDE.md) "Upstream tracking" section for additional guidelines.
+- See [CLAUDE.md](../../CLAUDE.md) "Upstream tracking" section for additional guidelines.

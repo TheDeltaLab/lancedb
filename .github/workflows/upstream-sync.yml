@@ -52,7 +52,7 @@ jobs:
         if: steps.check.outputs.has_new_commits == 'true'
         run: |
           set -euo pipefail
-          git checkout sync
+          git checkout -B sync origin/sync
           git merge --ff-only upstream/main
           git push origin sync
 
