@@ -1,9 +1,8 @@
 LanceDB is a database designed for retrieval, including vector, full-text, and hybrid search.
-It is a wrapper around Lance. There are two backends: local (in-process like SQLite) and
-remote (against LanceDB Cloud).
+It is a wrapper around Lance, running in-process like SQLite.
 
 This is TheDeltaLab's fork. We maintain only the Rust core and Node.js bindings.
-Python and Java bindings have been removed.
+Python, Java bindings, and remote (LanceDB Cloud) support have been removed.
 
 Project layout:
 
@@ -12,16 +11,16 @@ Project layout:
 
 Common commands:
 
-* Check for compiler errors: `cargo check --quiet --features remote --tests --examples`
-* Run tests: `cargo test --quiet --features remote --tests`
-* Run specific test: `cargo test --quiet --features remote -p <package_name> --test <test_name>`
-* Lint: `cargo clippy --quiet --features remote --tests --examples`
+* Check for compiler errors: `cargo check --quiet --tests --examples`
+* Run tests: `cargo test --quiet --tests`
+* Run specific test: `cargo test --quiet -p <package_name> --test <test_name>`
+* Lint: `cargo clippy --quiet --tests --examples`
 * Format: `cargo fmt --all`
 
 Before committing changes, run formatting and lint:
 
 1. `cargo fmt --all`
-2. `cargo clippy --quiet --features remote --tests --examples`
+2. `cargo clippy --quiet --tests --examples`
 
 ## Coding tips
 
@@ -47,9 +46,7 @@ Before committing changes, run formatting and lint:
 ## Example plan: adding a new method on Table
 
 Adding a new method involves first adding it to the Rust core, then exposing it
-in the TypeScript bindings. There are both local and remote tables.
-Remote tables are implemented via a HTTP API and require the `remote` cargo
-feature flag to be enabled.
+in the TypeScript bindings.
 
 Rust core changes:
 
@@ -57,8 +54,6 @@ Rust core changes:
 2. Add method to `BaseTable` trait in `rust/lancedb/src/table.rs`.
 3. Implement new trait method on `NativeTable` in `rust/lancedb/src/table.rs`.
     * Test with unit test in `rust/lancedb/src/table.rs`.
-4. Implement new trait method on `RemoteTable` in `rust/lancedb/src/remote/table.rs`.
-    * Test with unit test in `rust/lancedb/src/remote/table.rs` against mocked endpoint.
 
 TypeScript bindings changes:
 
@@ -66,7 +61,6 @@ TypeScript bindings changes:
 2. Run `npm run build` to generate TypeScript definitions.
 3. Add typescript method on abstract class `Table` in `nodejs/src/table.ts`.
 4. Add concrete method on `LocalTable` class in `nodejs/src/native_table.ts`.
-    * Note: despite the name, this class is also used for remote tables.
 5. Add test in `nodejs/__test__/table.test.ts`.
 6. Run `npm run docs` to generate TypeScript documentation.
 
@@ -78,6 +72,7 @@ releases a new version:
 * Review the release changelog and associated PRs.
 * Cherry-pick or merge changes that touch `rust/` and `nodejs/`.
 * Ignore changes isolated to `python/`, `java/`, or their docs.
+* Ignore changes isolated to `rust/lancedb/src/remote/` (remote support removed).
 * Update `[workspace.metadata.upstream].version` in `Cargo.toml` after syncing.
 
 ## Review Guidelines

@@ -6,14 +6,13 @@
 
 # Function: connect()
 
-## connect(uri, options, session, headerProvider)
+## connect(uri, options, session)
 
 ```ts
 function connect(
    uri,
    options?,
-   session?,
-   headerProvider?): Promise<Connection>
+   session?): Promise<Connection>
 ```
 
 Connect to a LanceDB instance at the given URI.
@@ -22,20 +21,16 @@ Accepted formats:
 
 - `/path/to/database` - local database
 - `s3://bucket/path/to/database` or `gs://bucket/path/to/database` - database on cloud storage
-- `db://host:port` - remote database (LanceDB cloud)
 
 ### Parameters
 
 * **uri**: `string`
-    The uri of the database. If the database uri starts
-    with `db://` then it connects to a remote database.
+    The uri of the database.
 
 * **options?**: `Partial`&lt;[`ConnectionOptions`](../interfaces/ConnectionOptions.md)&gt;
     The options to use when connecting to the database
 
 * **session?**: [`Session`](../classes/Session.md)
-
-* **headerProvider?**: [`HeaderProvider`](../classes/HeaderProvider.md) \| () => `Record`&lt;`string`, `string`&gt; \| () => `Promise`&lt;`Record`&lt;`string`, `string`&gt;&gt;
 
 ### Returns
 
@@ -58,18 +53,6 @@ const conn = await connect(
 });
 ```
 
-Using with a header provider for per-request authentication:
-```ts
-const provider = new StaticHeaderProvider({
-  "X-API-Key": "my-key"
-});
-const conn = await connectWithHeaderProvider(
-  "db://host:port",
-  options,
-  provider
-);
-```
-
 ## connect(options)
 
 ```ts
@@ -82,7 +65,6 @@ Accepted formats:
 
 - `/path/to/database` - local database
 - `s3://bucket/path/to/database` or `gs://bucket/path/to/database` - database on cloud storage
-- `db://host:port` - remote database (LanceDB cloud)
 
 ### Parameters
 

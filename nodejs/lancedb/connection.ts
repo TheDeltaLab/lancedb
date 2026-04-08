@@ -113,8 +113,6 @@ export interface TableNamesOptions {
 /**
  * A LanceDB Connection that allows you to open tables and create new ones.
  *
- * Connection could be local against filesystem or remote against a server.
- *
  * A Connection is intended to be a long lived object and may hold open
  * resources such as HTTP connection pools.  This is generally fine and
  * a single connection should be shared if it is going to be used many

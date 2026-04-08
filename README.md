@@ -31,8 +31,8 @@ lancedb = "0.1.0"
 ```
 
 ```sh
-cargo check --features remote --tests --examples
-cargo test --features remote --tests
+cargo check --tests --examples
+cargo test --tests
 ```
 
 ### Node.js

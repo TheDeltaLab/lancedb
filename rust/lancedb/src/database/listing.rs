@@ -1129,8 +1129,6 @@ mod tests {
 
         let request = ConnectRequest {
             uri: uri.to_string(),
-            #[cfg(feature = "remote")]
-            client_config: Default::default(),
             options: Default::default(),
             read_consistency_interval: None,
             session: None,
@@ -1262,8 +1260,6 @@ mod tests {
 
         let request = ConnectRequest {
             uri: uri.to_string(),
-            #[cfg(feature = "remote")]
-            client_config: Default::default(),
             options: options.clone(),
             read_consistency_interval: None,
             session: None,
@@ -1796,8 +1792,6 @@ mod tests {
 
         let request = ConnectRequest {
             uri: uri.to_string(),
-            #[cfg(feature = "remote")]
-            client_config: Default::default(),
             options,
             read_consistency_interval: None,
             session: None,
@@ -1901,8 +1895,6 @@ mod tests {
 
         let request = ConnectRequest {
             uri: uri.to_string(),
-            #[cfg(feature = "remote")]
-            client_config: Default::default(),
             options,
             read_consistency_interval: None,
             session: None,
@@ -1972,8 +1964,6 @@ mod tests {
 
         let request = ConnectRequest {
             uri: uri.to_string(),
-            #[cfg(feature = "remote")]
-            client_config: Default::default(),
             options,
             read_consistency_interval: None,
             session: None,

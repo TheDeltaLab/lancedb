@@ -263,7 +263,6 @@ pub trait Database:
     /// Get the equivalent namespace client of this database
     /// For LanceNamespaceDatabase, it is the underlying LanceNamespace.
     /// For ListingDatabase, it is the equivalent DirectoryNamespace.
-    /// For RemoteDatabase, it is the equivalent RestNamespace.
     async fn namespace_client(&self) -> Result<Arc<dyn LanceNamespace>>;
 
     /// Get the configuration for constructing an equivalent namespace client.

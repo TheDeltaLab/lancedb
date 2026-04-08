@@ -527,7 +527,7 @@ impl Table {
     pub async fn uses_v2_manifest_paths(&self) -> napi::Result<bool> {
         self.inner_ref()?
             .as_native()
-            .ok_or_else(|| napi::Error::from_reason("This cannot be run on a remote table"))?
+            .ok_or_else(|| napi::Error::from_reason("Table is not a native table"))?
             .uses_v2_manifest_paths()
             .await
             .default_error()
@@ -537,7 +537,7 @@ impl Table {
     pub async fn migrate_manifest_paths_v2(&self) -> napi::Result<()> {
         self.inner_ref()?
             .as_native()
-            .ok_or_else(|| napi::Error::from_reason("This cannot be run on a remote table"))?
+            .ok_or_else(|| napi::Error::from_reason("Table is not a native table"))?
             .migrate_manifest_paths_v2()
             .await
             .default_error()

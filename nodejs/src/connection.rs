@@ -10,7 +10,6 @@ use napi_derive::*;
 
 use crate::ConnectionOptions;
 use crate::error::NapiErrorExt;
-use crate::header::JsHeaderProvider;
 use crate::table::Table;
 use lancedb::connection::{ConnectBuilder, Connection as LanceDBConnection};
 
@@ -52,11 +51,7 @@ impl Connection {
 impl Connection {
     /// Create a new Connection instance from the given URI.
     #[napi(factory)]
-    pub async fn new(
-        uri: String,
-        options: ConnectionOptions,
-        header_provider: Option<&JsHeaderProvider>,
-    ) -> napi::Result<Self> {
+    pub async fn new(uri: String, options: ConnectionOptions) -> napi::Result<Self> {
         let mut builder = ConnectBuilder::new(&uri);
         if let Some(interval) = options.read_consistency_interval {
             builder =
@@ -66,31 +61,6 @@ impl Connection {
             for (key, value) in storage_options {
                 builder = builder.storage_option(key, value);
             }
-        }
-
-        // Create client config, optionally with header provider
-        let client_config = options.client_config.unwrap_or_default();
-        let mut rust_config: lancedb::remote::ClientConfig = client_config.into();
-
-        if let Some(provider) = header_provider {
-            rust_config.header_provider =
-                Some(Arc::new(provider.clone()) as Arc<dyn lancedb::remote::HeaderProvider>);
-        }
-
-        builder = builder.client_config(rust_config);
-
-        if let Some(api_key) = options.api_key {
-            builder = builder.api_key(&api_key);
-        }
-
-        if let Some(region) = options.region {
-            builder = builder.region(&region);
-        } else {
-            builder = builder.region("us-east-1");
-        }
-
-        if let Some(host_override) = options.host_override {
-            builder = builder.host_override(&host_override);
         }
 
         if let Some(session) = options.session {

@@ -56,6 +56,11 @@ Conflicts are expected since our fork removes Python/Java bindings and carries c
     git checkout --ours python/ java/
     git rm -r python/ java/
     ```
+- **`rust/lancedb/src/remote/`**: Remote/LanceDB Cloud support has been removed from this fork. Discard any upstream changes to remote modules:
+    ```bash
+    git rm -rf rust/lancedb/src/remote/
+    ```
+    Also watch for upstream changes that add `#[cfg(feature = "remote")]` blocks in shared files (e.g., `connection.rs`, `table.rs`, `error.rs`, `database/listing.rs`) — these should be dropped during conflict resolution.
 - **CI/CD configs (`.github/`)**: Review case-by-case. Keep our customized workflows; adopt useful upstream CI improvements.
 
 After resolving conflicts:
@@ -88,8 +93,9 @@ Review checklist:
 
 - [ ] All `rust/` and `nodejs/` changes are included
 - [ ] No `python/` or `java/` files reintroduced
-- [ ] `cargo check --quiet --features remote --tests --examples` passes
-- [ ] `cargo test --quiet --features remote --tests` passes
+- [ ] No `rust/lancedb/src/remote/` files or `#[cfg(feature = "remote")]` code reintroduced
+- [ ] `cargo check --quiet --tests --examples` passes
+- [ ] `cargo test --quiet --tests` passes
 - [ ] Node.js bindings build: `cd nodejs && npm run build`
 - [ ] Update `[workspace.metadata.upstream].version` in root `Cargo.toml`
 
@@ -143,5 +149,6 @@ The workflow can also be triggered manually via `workflow_dispatch` from the Act
 ## Notes
 
 - We only maintain **Rust core** (`rust/`) and **Node.js bindings** (`nodejs/`). Ignore upstream changes to `python/` and `java/`.
+- **Remote/Cloud support is removed.** Ignore upstream changes isolated to `rust/lancedb/src/remote/`, `nodejs/src/remote.rs`, `nodejs/src/header.rs`, `nodejs/lancedb/header.ts`, and the `remote` cargo feature. See PR #35 for the full removal.
 - Always review the upstream [release changelog](https://github.com/lancedb/lancedb/releases) before syncing to understand what changed.
 - See [CLAUDE.md](../../CLAUDE.md) "Upstream tracking" section for additional guidelines.

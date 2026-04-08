@@ -91,9 +91,6 @@ impl std::fmt::Debug for WriteProgressTracker {
 
 pub(crate) struct WriteProgressTracker {
     rows_and_bytes: std::sync::Mutex<(usize, usize)>,
-    /// Wire bytes tracked separately by the insert layer. When set (> 0),
-    /// this takes precedence over the in-memory bytes from `rows_and_bytes`.
-    wire_bytes: AtomicUsize,
     active_tasks: Arc<AtomicUsize>,
     total_tasks: AtomicUsize,
     start: Instant,
@@ -106,7 +103,6 @@ impl WriteProgressTracker {
     pub fn new(callback: ProgressCallback, total_rows: Option<usize>) -> Self {
         Self {
             rows_and_bytes: std::sync::Mutex::new((0, 0)),
-            wire_bytes: AtomicUsize::new(0),
             active_tasks: Arc::new(AtomicUsize::new(0)),
             total_tasks: AtomicUsize::new(1),
             start: Instant::now(),
@@ -142,13 +138,6 @@ impl WriteProgressTracker {
         cb(&progress);
     }
 
-    /// Record wire bytes from the insert layer (e.g. IPC-encoded bytes for
-    /// remote writes). When wire bytes are recorded, they take precedence over
-    /// the in-memory Arrow bytes tracked by [`record_batch`].
-    pub fn record_bytes(&self, bytes: usize) {
-        self.wire_bytes.fetch_add(bytes, Ordering::Relaxed);
-    }
-
     /// Emit the final progress callback indicating the write is complete.
     ///
     /// `total_rows` is always `Some` on the final callback: it uses the known
@@ -166,16 +155,10 @@ impl WriteProgressTracker {
     }
 
     fn snapshot(&self, rows: usize, in_memory_bytes: usize, done: bool) -> WriteProgress {
-        let wire = self.wire_bytes.load(Ordering::Relaxed);
-        // Prefer wire bytes (actual I/O size) when the insert layer is
-        // tracking them; fall back to in-memory Arrow size otherwise.
-        // TODO: for local writes, track actual bytes written by Lance
-        // instead of using in-memory Arrow size as a proxy.
-        let output_bytes = if wire > 0 { wire } else { in_memory_bytes };
         WriteProgress {
             elapsed: self.start.elapsed(),
             output_rows: rows,
-            output_bytes,
+            output_bytes: in_memory_bytes,
             total_rows: self.total_rows,
             active_tasks: self.active_tasks.load(Ordering::Relaxed),
             total_tasks: self.total_tasks.load(Ordering::Relaxed),
