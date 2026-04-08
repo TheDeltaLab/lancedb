@@ -4320,9 +4320,7 @@ mod tests {
         let result = mock.get_version_by_time(target_time).await.unwrap();
         assert_eq!(result.version, target_version);
 
-        let reads = mock
-            .read_count
-            .load(std::sync::atomic::Ordering::Relaxed);
+        let reads = mock.read_count.load(std::sync::atomic::Ordering::Relaxed);
         // Binary search on 1000 versions should need at most log2(1000) ≈ 10 reads.
         // We allow up to 20 to leave some margin.
         assert!(
