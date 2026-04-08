@@ -2266,6 +2266,22 @@ impl BaseTable for NativeTable {
         Ok(self.dataset.get().await?.versions().await?)
     }
 
+    async fn get_version_info(&self, version: u64) -> Result<Version> {
+        let dataset = self.dataset.get().await?;
+        let versioned = dataset
+            .checkout_version(version)
+            .await
+            .map_err(|e| match &e {
+                lance::Error::NotFound { .. }
+                | lance::Error::DatasetNotFound { .. }
+                | lance::Error::VersionNotFound { .. } => Error::InvalidInput {
+                    message: format!("Version {} not found", version),
+                },
+                _ => e.into(),
+            })?;
+        Ok(versioned.version())
+    }
+
     async fn restore(&self) -> Result<()> {
         let version = self
             .dataset
