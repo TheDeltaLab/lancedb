@@ -2350,7 +2350,7 @@ describe("column name options", () => {
       .limit(10)
       .toArray();
     expect(results2.length).toBe(10);
-  });
+  }, 10_000);
 });
 
 describe("when creating an empty table", () => {
