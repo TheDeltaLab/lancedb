@@ -10,7 +10,7 @@ components have been removed.
 | | |
 |---|---|
 | Upstream repo | https://github.com/lancedb/lancedb |
-| Based on upstream version | **0.27.2-beta.1** |
+| Based on upstream version | **0.28.0-beta.1** |
 
 See `[workspace.metadata.upstream]` in `Cargo.toml` for the current upstream version tag.
 
