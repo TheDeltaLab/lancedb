@@ -2356,6 +2356,160 @@ mod tests {
         assert!(!field_names2.contains(&"vector"));
     }
 
+    /// Regression test: hybrid search must return raw (pre-normalization)
+    /// `_distance` and `_score` values that match standalone vector / FTS
+    /// searches, not the [0,1] normalized values used internally for reranking.
+    #[tokio::test]
+    async fn test_hybrid_search_restores_original_scores() {
+        use crate::rerankers::ReturnScore;
+        use crate::rerankers::rrf::RRFReranker;
+
+        let tmp_dir = tempdir().unwrap();
+        let conn = connect(tmp_dir.path().to_str().unwrap())
+            .execute()
+            .await
+            .unwrap();
+
+        let dims = 2;
+        let schema = Arc::new(ArrowSchema::new(vec![
+            ArrowField::new("text", DataType::Utf8, false),
+            ArrowField::new(
+                "vector",
+                DataType::FixedSizeList(
+                    Arc::new(ArrowField::new("item", DataType::Float32, true)),
+                    dims,
+                ),
+                false,
+            ),
+        ]));
+
+        // Use vectors with clearly different distances from the query [0,0].
+        let text = StringArray::from(vec!["dog", "cat", "bird", "fish"]);
+        let vectors = vec![
+            Some(vec![Some(1.0), Some(0.0)]),   // distance ~1.0
+            Some(vec![Some(3.0), Some(0.0)]),   // distance ~9.0
+            Some(vec![Some(0.5), Some(0.5)]),   // distance ~0.5
+            Some(vec![Some(10.0), Some(10.0)]), // distance ~200.0
+        ];
+        let vector = FixedSizeListArray::from_iter_primitive::<Float32Type, _, _>(vectors, dims);
+        let batch =
+            RecordBatch::try_new(schema.clone(), vec![Arc::new(text), Arc::new(vector)]).unwrap();
+        let table = conn
+            .create_table("scores_test", batch)
+            .execute()
+            .await
+            .unwrap();
+        table
+            .create_index(&["text"], crate::index::Index::FTS(Default::default()))
+            .execute()
+            .await
+            .unwrap();
+
+        // --- standalone vector search: build text→distance map ---
+        let vec_results = table
+            .query()
+            .nearest_to(&[0.0_f32, 0.0])
+            .unwrap()
+            .limit(10)
+            .execute()
+            .await
+            .unwrap()
+            .try_collect::<Vec<_>>()
+            .await
+            .unwrap();
+        let vec_batch = concat_batches(&vec_results[0].schema(), &vec_results).unwrap();
+        let vec_texts: StringArray = downcast_array(vec_batch.column_by_name("text").unwrap());
+        let vec_distances: Float32Array =
+            downcast_array(vec_batch.column_by_name("_distance").unwrap());
+        let vec_map: std::collections::HashMap<String, f32> = vec_texts
+            .iter()
+            .enumerate()
+            .map(|(i, t)| (t.unwrap().to_string(), vec_distances.value(i)))
+            .collect();
+
+        // --- standalone FTS search: build text→score map ---
+        let fts_results = table
+            .query()
+            .full_text_search(FullTextSearchQuery::new("dog".to_string()))
+            .limit(10)
+            .execute()
+            .await
+            .unwrap()
+            .try_collect::<Vec<_>>()
+            .await
+            .unwrap();
+        let fts_batch = concat_batches(&fts_results[0].schema(), &fts_results).unwrap();
+        let fts_texts: StringArray = downcast_array(fts_batch.column_by_name("text").unwrap());
+        let fts_scores: Float32Array = downcast_array(fts_batch.column_by_name("_score").unwrap());
+        let fts_map: std::collections::HashMap<String, f32> = fts_texts
+            .iter()
+            .enumerate()
+            .map(|(i, t)| (t.unwrap().to_string(), fts_scores.value(i)))
+            .collect();
+
+        // --- hybrid search with ReturnScore::All ---
+        let reranker = Arc::new(RRFReranker::new_with_score(60.0, ReturnScore::All));
+        let hybrid_results = table
+            .query()
+            .full_text_search(FullTextSearchQuery::new("dog".to_string()))
+            .nearest_to(&[0.0_f32, 0.0])
+            .unwrap()
+            .rerank(reranker)
+            .limit(10)
+            .execute_hybrid(QueryExecutionOptions::default())
+            .await
+            .unwrap()
+            .try_collect::<Vec<_>>()
+            .await
+            .unwrap();
+        let hybrid_batch = concat_batches(&hybrid_results[0].schema(), &hybrid_results).unwrap();
+
+        let h_texts: StringArray = downcast_array(hybrid_batch.column_by_name("text").unwrap());
+        let h_distances: Float32Array =
+            downcast_array(hybrid_batch.column_by_name("_distance").unwrap());
+        let h_scores: Float32Array = downcast_array(hybrid_batch.column_by_name("_score").unwrap());
+
+        // For every row in the hybrid result, verify its _distance / _score
+        // matches the raw value from the standalone search.
+        for i in 0..hybrid_batch.num_rows() {
+            let text = h_texts.value(i);
+
+            if !h_distances.is_null(i) {
+                let hybrid_dist = h_distances.value(i);
+                let expected = vec_map.get(text).unwrap_or_else(|| {
+                    panic!(
+                        "text '{}' found in hybrid _distance but not in vec search",
+                        text
+                    )
+                });
+                assert!(
+                    (hybrid_dist - expected).abs() < 1e-6,
+                    "text '{}' _distance mismatch: hybrid={} expected={}",
+                    text,
+                    hybrid_dist,
+                    expected,
+                );
+            }
+
+            if !h_scores.is_null(i) {
+                let hybrid_score = h_scores.value(i);
+                let expected = fts_map.get(text).unwrap_or_else(|| {
+                    panic!(
+                        "text '{}' found in hybrid _score but not in fts search",
+                        text
+                    )
+                });
+                assert!(
+                    (hybrid_score - expected).abs() < 1e-6,
+                    "text '{}' _score mismatch: hybrid={} expected={}",
+                    text,
+                    hybrid_score,
+                    expected,
+                );
+            }
+        }
+    }
+
     #[tokio::test]
     async fn test_hybrid_search_empty_table() {
         let tmp_dir = tempdir().unwrap();
