@@ -196,19 +196,19 @@ impl OriginalScores {
         }
         let row_ids: UInt64Array = downcast_array(batch.column_by_name(ROW_ID)?);
         let scores: Float32Array = downcast_array(batch.column_by_name(score_column)?);
-        let map: HashMap<u64, Option<f32>> = row_ids
-            .values()
-            .iter()
-            .enumerate()
-            .map(|(i, &id)| {
-                let val = if scores.is_null(i) {
+        // Use `entry().or_insert()` so that for duplicate ROW_IDs the *first*
+        // occurrence wins, consistent with `dedup_by_row_id` which also keeps
+        // the first occurrence.  (`HashMap::collect` would keep the *last*.)
+        let mut map = HashMap::with_capacity(row_ids.len());
+        for (i, &id) in row_ids.values().iter().enumerate() {
+            map.entry(id).or_insert_with(|| {
+                if scores.is_null(i) {
                     None
                 } else {
                     Some(scores.value(i))
-                };
-                (id, val)
-            })
-            .collect();
+                }
+            });
+        }
         Some(Self { map })
     }
 }
