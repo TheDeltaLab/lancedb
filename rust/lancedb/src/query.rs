@@ -1234,6 +1234,13 @@ impl VectorQuery {
             fts_results = hybrid::rank(fts_results, SCORE_COL, None)?;
         }
 
+        // Save original scores before normalization so we can restore them
+        // after reranking.  The reranker needs normalized values to work
+        // correctly, but the caller expects the raw scores in the output.
+        // (Mirrors the Python fix in lancedb#2061.)
+        let original_distances = hybrid::OriginalScores::save(&vec_results, DIST_COL);
+        let original_scores = hybrid::OriginalScores::save(&fts_results, SCORE_COL);
+
         vec_results = hybrid::normalize_scores(vec_results, DIST_COL, None)?;
         fts_results = hybrid::normalize_scores(fts_results, SCORE_COL, None)?;
 
@@ -1258,6 +1265,15 @@ impl VectorQuery {
             .await?;
 
         check_reranker_result(&results)?;
+
+        // Restore original (pre-normalization) scores so the caller sees raw
+        // _distance and _score values instead of the [0,1] normalized ones.
+        if let Some(ref orig) = original_distances {
+            results = hybrid::restore_original_scores(results, DIST_COL, orig)?;
+        }
+        if let Some(ref orig) = original_scores {
+            results = hybrid::restore_original_scores(results, SCORE_COL, orig)?;
+        }
 
         let limit = self.request.base.limit.unwrap_or(DEFAULT_TOP_K);
         if results.num_rows() > limit {
