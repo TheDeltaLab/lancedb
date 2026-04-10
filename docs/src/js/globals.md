@@ -68,6 +68,7 @@
 - [OpenTableOptions](interfaces/OpenTableOptions.md)
 - [OptimizeOptions](interfaces/OptimizeOptions.md)
 - [OptimizeStats](interfaces/OptimizeStats.md)
+- [ProfilingOptions](interfaces/ProfilingOptions.md)
 - [QueryExecutionOptions](interfaces/QueryExecutionOptions.md)
 - [RemovalStats](interfaces/RemovalStats.md)
 - [ShuffleOptions](interfaces/ShuffleOptions.md)
@@ -98,6 +99,8 @@
 
 - [RecordBatchIterator](functions/RecordBatchIterator.md)
 - [connect](functions/connect.md)
+- [initProfiling](functions/initProfiling.md)
 - [makeArrowTable](functions/makeArrowTable.md)
 - [packBits](functions/packBits.md)
 - [permutationBuilder](functions/permutationBuilder.md)
+- [withTraceparent](functions/withTraceparent.md)

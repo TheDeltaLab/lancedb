@@ -20,6 +20,85 @@ import {
   VectorQuery as NativeVectorQuery,
 } from "./native";
 import { Reranker } from "./rerankers";
+import { AsyncLocalStorage } from "node:async_hooks";
+
+/**
+ * AsyncLocalStorage used to propagate a W3C traceparent string through
+ * the call chain without requiring an active OpenTelemetry span.
+ *
+ * This is useful when the framework (e.g. Hono with @hono/node-server)
+ * does not propagate the OTel async context into route handlers.
+ *
+ * @hidden
+ */
+const traceparentStorage = new AsyncLocalStorage<string>();
+
+/**
+ * Run a function with a specific W3C traceparent string.
+ *
+ * Any LanceDB operations called within `fn` will use this traceparent
+ * to link Rust-side tracing spans to the caller's trace.
+ *
+ * @example
+ * ```ts
+ * import { withTraceparent } from "@delta-ai/lancedb";
+ *
+ * // Inside a Hono / Express / Koa handler:
+ * const tp = req.headers.get("traceparent");
+ * const results = await withTraceparent(tp, () => table.query().limit(10).toArray());
+ * ```
+ */
+export function withTraceparent<T>(
+  traceparent: string | undefined,
+  fn: () => T,
+): T {
+  if (!traceparent) return fn();
+  return traceparentStorage.run(traceparent, fn);
+}
+
+/**
+ * Lazily cached reference to `@opentelemetry/api` module.
+ * Avoids calling `require()` on every `getTraceparent()` invocation.
+ * @hidden
+ */
+// biome-ignore lint/suspicious/noExplicitAny: dynamic optional dependency
+let otelApi: any | null | undefined; // undefined = not yet probed
+
+/**
+ * Extract the current W3C traceparent from the active OpenTelemetry span,
+ * if `@opentelemetry/api` is installed. Falls back to the value set via
+ * {@link withTraceparent}. Returns `undefined` when neither is available.
+ * @hidden
+ */
+export function getTraceparent(): string | undefined {
+  // 1. Check AsyncLocalStorage (set via withTraceparent)
+  const stored = traceparentStorage.getStore();
+  if (stored) {
+    return stored;
+  }
+
+  // 2. Try OTel active span (lazy-load the module once)
+  if (otelApi === undefined) {
+    try {
+      otelApi = require("@opentelemetry/api");
+    } catch {
+      otelApi = null; // @opentelemetry/api not installed
+    }
+  }
+  if (otelApi === null) return undefined;
+
+  try {
+    const span = otelApi.trace.getActiveSpan();
+    if (!span) return undefined;
+    const ctx = span.spanContext();
+    if (!ctx.traceId || ctx.traceId === "00000000000000000000000000000000")
+      return undefined;
+    const flags = (ctx.traceFlags ?? 1).toString(16).padStart(2, "0");
+    return `00-${ctx.traceId}-${ctx.spanId}-${flags}`;
+  } catch {
+    return undefined;
+  }
+}
 
 export async function* RecordBatchIterator(
   promisedInner: Promise<NativeBatchIterator>,
@@ -55,8 +134,13 @@ class RecordBatchIterable<
 
   // biome-ignore lint/suspicious/noExplicitAny: skip
   [Symbol.asyncIterator](): AsyncIterator<RecordBatch<any>, any, undefined> {
+    const traceparent = getTraceparent();
     return RecordBatchIterator(
-      this.inner.execute(this.options?.maxBatchLength, this.options?.timeoutMs),
+      this.inner.execute(
+        this.options?.maxBatchLength,
+        this.options?.timeoutMs,
+        traceparent,
+      ),
     );
   }
 }
@@ -202,12 +286,17 @@ export class QueryBase<
   protected nativeExecute(
     options?: Partial<QueryExecutionOptions>,
   ): Promise<NativeBatchIterator> {
+    const traceparent = getTraceparent();
     if (this.inner instanceof Promise) {
       return this.inner.then((inner) =>
-        inner.execute(options?.maxBatchLength, options?.timeoutMs),
+        inner.execute(options?.maxBatchLength, options?.timeoutMs, traceparent),
       );
     } else {
-      return this.inner.execute(options?.maxBatchLength, options?.timeoutMs);
+      return this.inner.execute(
+        options?.maxBatchLength,
+        options?.timeoutMs,
+        traceparent,
+      );
     }
   }
 

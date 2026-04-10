@@ -48,6 +48,13 @@ datafusion-physical-plan = "52.1"
 datafusion-physical-expr = "52.1"
 datafusion-sql = "52.1"
 env_logger = "0.11"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "json", "env-filter", "registry"] }
+tracing-opentelemetry = "0.29"
+opentelemetry = "0.28"
+opentelemetry_sdk = { version = "0.28", features = ["rt-tokio"] }
+opentelemetry-otlp = { version = "0.28", features = ["grpc-tonic", "http-proto", "logs", "metrics", "trace"] }
+opentelemetry-appender-tracing = "0.28"
 half = { "version" = "2.7.1", default-features = false, features = [
     "num-traits",
 ] }

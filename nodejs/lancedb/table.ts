@@ -40,6 +40,7 @@ import {
   Query,
   TakeQuery,
   VectorQuery,
+  getTraceparent,
   instanceOfFullTextQuery,
 } from "./query";
 import { sanitizeType } from "./sanitize";
@@ -661,7 +662,7 @@ export class LocalTable extends Table {
     const schema = await this.schema();
 
     const buffer = await fromDataToBuffer(data, undefined, schema);
-    return await this.inner.add(buffer, mode);
+    return await this.inner.add(buffer, mode, getTraceparent());
   }
 
   async update(
@@ -721,15 +722,15 @@ export class LocalTable extends Table {
         columns = Object.entries(optsOrUpdates as Record<string, string>);
         predicate = options?.where;
     }
-    return await this.inner.update(predicate, columns);
+    return await this.inner.update(predicate, columns, getTraceparent());
   }
 
   async countRows(filter?: string): Promise<number> {
-    return await this.inner.countRows(filter);
+    return await this.inner.countRows(filter, getTraceparent());
   }
 
   async delete(predicate: string): Promise<DeleteResult> {
-    return await this.inner.delete(predicate);
+    return await this.inner.delete(predicate, getTraceparent());
   }
 
   async createIndex(column: string, options?: Partial<IndexOptions>) {
@@ -743,6 +744,7 @@ export class LocalTable extends Table {
       options?.waitTimeoutSeconds,
       options?.name,
       options?.train,
+      getTraceparent(),
     );
   }
 
@@ -989,6 +991,7 @@ export class LocalTable extends Table {
       cleanupOlderThanMs,
       options?.deleteUnverified,
       options?.errorIfTaggedOldVersions,
+      getTraceparent(),
     );
   }
 

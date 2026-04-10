@@ -10,6 +10,7 @@ use lancedb::table::{
 };
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
+use tracing::Instrument;
 
 use crate::error::NapiErrorExt;
 use crate::index::Index;
@@ -68,7 +69,14 @@ impl Table {
     }
 
     #[napi(catch_unwind)]
-    pub async fn add(&self, buf: Buffer, mode: String) -> napi::Result<AddResult> {
+    pub async fn add(
+        &self,
+        buf: Buffer,
+        mode: String,
+        traceparent: Option<String>,
+    ) -> napi::Result<AddResult> {
+        let span = crate::tracing_util::napi_span!(traceparent, "lancedb.napi.table.add");
+
         let batches = ipc_file_to_batches(buf.to_vec())
             .map_err(|e| napi::Error::from_reason(format!("Failed to read IPC file: {}", e)))?;
         let batches = batches
@@ -92,26 +100,45 @@ impl Table {
             return Err(napi::Error::from_reason(format!("Invalid mode: {}", mode)));
         };
 
-        let res = op.execute().await.default_error()?;
+        let res = op.execute().instrument(span).await.default_error()?;
         Ok(res.into())
     }
 
     #[napi(catch_unwind)]
-    pub async fn count_rows(&self, filter: Option<String>) -> napi::Result<i64> {
+    pub async fn count_rows(
+        &self,
+        filter: Option<String>,
+        traceparent: Option<String>,
+    ) -> napi::Result<i64> {
+        let span = crate::tracing_util::napi_span!(traceparent, "lancedb.napi.table.count_rows");
+
         self.inner_ref()?
             .count_rows(filter)
+            .instrument(span)
             .await
             .map(|val| val as i64)
             .default_error()
     }
 
     #[napi(catch_unwind)]
-    pub async fn delete(&self, predicate: String) -> napi::Result<DeleteResult> {
-        let res = self.inner_ref()?.delete(&predicate).await.default_error()?;
+    pub async fn delete(
+        &self,
+        predicate: String,
+        traceparent: Option<String>,
+    ) -> napi::Result<DeleteResult> {
+        let span = crate::tracing_util::napi_span!(traceparent, "lancedb.napi.table.delete");
+
+        let res = self
+            .inner_ref()?
+            .delete(&predicate)
+            .instrument(span)
+            .await
+            .default_error()?;
         Ok(res.into())
     }
 
     #[napi(catch_unwind)]
+    #[allow(clippy::too_many_arguments)]
     pub async fn create_index(
         &self,
         index: Option<&Index>,
@@ -120,7 +147,10 @@ impl Table {
         wait_timeout_s: Option<i64>,
         name: Option<String>,
         train: Option<bool>,
+        traceparent: Option<String>,
     ) -> napi::Result<()> {
+        let span = crate::tracing_util::napi_span!(traceparent, "lancedb.napi.table.create_index");
+
         let lancedb_index = if let Some(index) = index {
             index.consume()?
         } else {
@@ -140,7 +170,7 @@ impl Table {
         if let Some(train) = train {
             builder = builder.train(train);
         }
-        builder.execute().await.default_error()
+        builder.execute().instrument(span).await.default_error()
     }
 
     #[napi(catch_unwind)]
@@ -195,7 +225,10 @@ impl Table {
         &self,
         only_if: Option<String>,
         columns: Vec<(String, String)>,
+        traceparent: Option<String>,
     ) -> napi::Result<UpdateResult> {
+        let span = crate::tracing_util::napi_span!(traceparent, "lancedb.napi.table.update");
+
         let mut op = self.inner_ref()?.update();
         if let Some(only_if) = only_if {
             op = op.only_if(only_if);
@@ -203,7 +236,7 @@ impl Table {
         for (column_name, value) in columns {
             op = op.column(column_name, value);
         }
-        let res = op.execute().await.default_error()?;
+        let res = op.execute().instrument(span).await.default_error()?;
         Ok(res.into())
     }
 
@@ -444,7 +477,10 @@ impl Table {
         older_than_ms: Option<i64>,
         delete_unverified: Option<bool>,
         error_if_tagged_old_versions: Option<bool>,
+        traceparent: Option<String>,
     ) -> napi::Result<OptimizeStats> {
+        let span = crate::tracing_util::napi_span!(traceparent, "lancedb.napi.table.optimize");
+
         let inner = self.inner_ref()?;
 
         let older_than = if let Some(ms) = older_than_ms {
@@ -459,43 +495,47 @@ impl Table {
             None
         };
 
-        let compaction_stats = inner
-            .optimize(OptimizeAction::Compact {
-                options: lancedb::table::CompactionOptions::default(),
-                remap_options: None,
+        async {
+            let compaction_stats = inner
+                .optimize(OptimizeAction::Compact {
+                    options: lancedb::table::CompactionOptions::default(),
+                    remap_options: None,
+                })
+                .await
+                .default_error()?
+                .compaction
+                .unwrap();
+            let prune_stats = inner
+                .optimize(OptimizeAction::Prune {
+                    older_than,
+                    delete_unverified,
+                    error_if_tagged_old_versions,
+                })
+                .await
+                .default_error()?
+                .prune
+                .unwrap();
+            inner
+                .optimize(lancedb::table::OptimizeAction::Index(
+                    OptimizeOptions::default(),
+                ))
+                .await
+                .default_error()?;
+            Ok(OptimizeStats {
+                compaction: CompactionStats {
+                    files_added: compaction_stats.files_added as i64,
+                    files_removed: compaction_stats.files_removed as i64,
+                    fragments_added: compaction_stats.fragments_added as i64,
+                    fragments_removed: compaction_stats.fragments_removed as i64,
+                },
+                prune: RemovalStats {
+                    bytes_removed: prune_stats.bytes_removed as i64,
+                    old_versions_removed: prune_stats.old_versions as i64,
+                },
             })
-            .await
-            .default_error()?
-            .compaction
-            .unwrap();
-        let prune_stats = inner
-            .optimize(OptimizeAction::Prune {
-                older_than,
-                delete_unverified,
-                error_if_tagged_old_versions,
-            })
-            .await
-            .default_error()?
-            .prune
-            .unwrap();
-        inner
-            .optimize(lancedb::table::OptimizeAction::Index(
-                OptimizeOptions::default(),
-            ))
-            .await
-            .default_error()?;
-        Ok(OptimizeStats {
-            compaction: CompactionStats {
-                files_added: compaction_stats.files_added as i64,
-                files_removed: compaction_stats.files_removed as i64,
-                fragments_added: compaction_stats.fragments_added as i64,
-                fragments_removed: compaction_stats.fragments_removed as i64,
-            },
-            prune: RemovalStats {
-                bytes_removed: prune_stats.bytes_removed as i64,
-                old_versions_removed: prune_stats.old_versions as i64,
-            },
-        })
+        }
+        .instrument(span)
+        .await
     }
 
     #[napi(catch_unwind)]

@@ -173,6 +173,8 @@ pub mod io;
 pub mod ipc;
 #[cfg(feature = "polars")]
 mod polars_arrow_convertors;
+#[cfg(any(feature = "profiling", feature = "profiling-otlp"))]
+pub mod profiling;
 pub mod query;
 pub mod rerankers;
 pub mod table;

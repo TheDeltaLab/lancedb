@@ -2,8 +2,8 @@
 // SPDX-FileCopyrightText: Copyright The LanceDB Authors
 
 use std::collections::HashMap;
+use std::sync::OnceLock;
 
-use env_logger::Env;
 use napi_derive::*;
 
 mod connection;
@@ -16,7 +16,13 @@ mod query;
 mod rerankers;
 mod session;
 mod table;
+mod tracing_util;
 mod util;
+
+/// Stores the reload handle from init_subscriber() so that initProfiling()
+/// can hot-swap the tracing layers later.
+#[cfg(any(feature = "profiling", feature = "profiling-otlp"))]
+static RELOAD_HANDLE: OnceLock<lancedb::profiling::ReloadHandle> = OnceLock::new();
 
 #[napi(object)]
 #[derive(Debug)]
@@ -47,8 +53,86 @@ pub struct OpenTableOptions {
 
 #[napi_derive::module_init]
 fn init() {
-    let env = Env::new()
-        .filter_or("LANCEDB_LOG", "warn")
-        .write_style("LANCEDB_LOG_STYLE");
-    env_logger::init_from_env(env);
+    #[cfg(any(feature = "profiling", feature = "profiling-otlp"))]
+    {
+        let handle = lancedb::profiling::init_subscriber();
+        let _ = RELOAD_HANDLE.set(handle);
+    }
+
+    #[cfg(not(any(feature = "profiling", feature = "profiling-otlp")))]
+    {
+        use tracing_subscriber::EnvFilter;
+        let filter =
+            EnvFilter::try_from_env("LANCEDB_LOG").unwrap_or_else(|_| EnvFilter::new("warn"));
+        tracing_subscriber::fmt()
+            .with_env_filter(filter)
+            .try_init()
+            .ok();
+    }
+}
+
+/// Options for configuring OTLP profiling export.
+#[napi(object)]
+pub struct ProfilingOptions {
+    /// The OTLP collector endpoint (e.g. "http://localhost:4318").
+    /// Falls back to OTEL_EXPORTER_OTLP_ENDPOINT env var.
+    pub otlp_endpoint: Option<String>,
+    /// The service name for telemetry (defaults to "lancedb").
+    /// Falls back to OTEL_SERVICE_NAME env var.
+    pub service_name: Option<String>,
+    /// Transport protocol: "http" (default) or "grpc".
+    pub protocol: Option<String>,
+}
+
+/// Initialize OTLP profiling for traces, metrics, and logs.
+///
+/// This hot-swaps the tracing subscriber's inner layers to export telemetry
+/// data to an OTLP-compatible collector (e.g. Grafana Alloy, OpenTelemetry
+/// Collector).
+///
+/// Can be called at any time — the global subscriber installed at module
+/// load supports hot-reloading, so no "must call before any LanceDB
+/// operations" constraint.
+///
+/// Requires the `profiling-otlp` feature to be enabled at build time.
+#[napi]
+pub fn init_profiling(options: Option<ProfilingOptions>) -> napi::Result<()> {
+    #[cfg(feature = "profiling-otlp")]
+    {
+        let handle = RELOAD_HANDLE
+            .get()
+            .ok_or_else(|| napi::Error::from_reason("Tracing subscriber not initialized"))?;
+
+        let mut config = lancedb::profiling::OtlpConfig::default();
+        if let Some(opts) = options {
+            if let Some(endpoint) = opts.otlp_endpoint {
+                config.endpoint = endpoint;
+            }
+            if let Some(name) = opts.service_name {
+                config.service_name = name;
+            }
+            if let Some(proto) = opts.protocol {
+                config.protocol = match proto.as_str() {
+                    "grpc" => lancedb::profiling::OtlpProtocol::Grpc,
+                    _ => lancedb::profiling::OtlpProtocol::Http,
+                };
+            }
+        }
+
+        // Store the guard in a static to prevent shutdown on drop
+        static GUARD: OnceLock<lancedb::profiling::OtlpGuard> = OnceLock::new();
+        let guard = lancedb::profiling::upgrade_to_otlp(handle, config)
+            .map_err(|e| napi::Error::from_reason(format!("Failed to init OTLP profiling: {e}")))?;
+        let _ = GUARD.set(guard);
+        Ok(())
+    }
+
+    #[cfg(not(feature = "profiling-otlp"))]
+    {
+        let _ = options;
+        Err(napi::Error::from_reason(
+            "OTLP profiling is not enabled. Rebuild with the 'profiling-otlp' feature flag."
+                .to_string(),
+        ))
+    }
 }
