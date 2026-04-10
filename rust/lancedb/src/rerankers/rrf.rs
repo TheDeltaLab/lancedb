@@ -211,6 +211,28 @@ impl RRFReranker {
     }
 }
 
+/// Deduplicate rows in a [`RecordBatch`] by `ROW_ID`, keeping the first
+/// occurrence of each id.
+fn dedup_by_row_id(batch: RecordBatch) -> Result<RecordBatch> {
+    use std::collections::HashSet;
+
+    if batch.num_rows() == 0 {
+        return Ok(batch);
+    }
+
+    let row_ids: UInt64Array =
+        downcast_array(
+            batch
+                .column_by_name(ROW_ID)
+                .ok_or_else(|| Error::InvalidInput {
+                    message: format!("column '{}' missing from batch for deduplication", ROW_ID),
+                })?,
+        );
+    let mut seen = HashSet::new();
+    let mask = BooleanArray::from_iter(row_ids.values().iter().map(|id| Some(seen.insert(*id))));
+    Ok(filter_record_batch(&batch, &mask)?)
+}
+
 impl Default for RRFReranker {
     fn default() -> Self {
         Self {
@@ -228,6 +250,11 @@ impl Reranker for RRFReranker {
         vector_results: RecordBatch,
         fts_results: RecordBatch,
     ) -> Result<RecordBatch> {
+        // Deduplicate inputs by ROW_ID so that each row is ranked exactly once
+        // and appears at most once in the merged output.
+        let vector_results = dedup_by_row_id(vector_results)?;
+        let fts_results = dedup_by_row_id(fts_results)?;
+
         let vector_ids = vector_results
             .column_by_name(ROW_ID)
             .ok_or(Error::InvalidInput {
@@ -563,5 +590,56 @@ pub mod test {
         let row3 = rows.iter().find(|(id, _, _)| *id == 3).unwrap();
         assert!(row3.1.is_none(), "id=3 _distance should be null (FTS-only)");
         assert!(row3.2.is_some(), "id=3 _score should be non-null");
+    }
+
+    /// Duplicate ROW_IDs in vector results must be deduplicated so that each
+    /// row appears exactly once in the output and is ranked only once.
+    #[tokio::test]
+    async fn test_rrf_deduplicates_vector_results() {
+        let vec_schema = Arc::new(Schema::new(vec![
+            Field::new("name", DataType::Utf8, false),
+            Field::new(ROW_ID, DataType::UInt64, false),
+            Field::new("_distance", DataType::Float32, true),
+        ]));
+        let fts_schema = Arc::new(Schema::new(vec![
+            Field::new("name", DataType::Utf8, false),
+            Field::new(ROW_ID, DataType::UInt64, false),
+            Field::new("_score", DataType::Float32, true),
+        ]));
+
+        // id=1 appears twice in vector results
+        let vec_results = RecordBatch::try_new(
+            vec_schema,
+            vec![
+                Arc::new(StringArray::from(vec!["foo", "bar", "foo"])),
+                Arc::new(UInt64Array::from(vec![1u64, 2u64, 1u64])),
+                Arc::new(Float32Array::from(vec![0.1f32, 0.2f32, 0.3f32])),
+            ],
+        )
+        .unwrap();
+
+        let fts_results = RecordBatch::try_new(
+            fts_schema,
+            vec![
+                Arc::new(StringArray::from(vec!["bar"])),
+                Arc::new(UInt64Array::from(vec![2u64])),
+                Arc::new(Float32Array::from(vec![0.9f32])),
+            ],
+        )
+        .unwrap();
+
+        let reranker = RRFReranker::new_with_score(1.0, ReturnScore::All);
+        let result = reranker
+            .rerank_hybrid("", vec_results, fts_results)
+            .await
+            .unwrap();
+
+        let row_ids: UInt64Array = downcast_array(result.column_by_name(ROW_ID).unwrap());
+        let ids: Vec<u64> = row_ids.values().to_vec();
+
+        // Each id must appear exactly once
+        assert_eq!(ids.len(), 2, "expected 2 unique rows, got {:?}", ids);
+        assert!(ids.contains(&1), "id=1 should be present");
+        assert!(ids.contains(&2), "id=2 should be present");
     }
 }
