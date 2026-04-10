@@ -119,8 +119,12 @@ pub fn init_profiling(options: Option<ProfilingOptions>) -> napi::Result<()> {
             }
         }
 
-        // Store the guard in a static to prevent shutdown on drop
+        // Store the guard in a static to prevent shutdown on drop.
+        // If already initialized, return early (idempotent).
         static GUARD: OnceLock<lancedb::profiling::OtlpGuard> = OnceLock::new();
+        if GUARD.get().is_some() {
+            return Ok(());
+        }
         let guard = lancedb::profiling::upgrade_to_otlp(handle, config)
             .map_err(|e| napi::Error::from_reason(format!("Failed to init OTLP profiling: {e}")))?;
         let _ = GUARD.set(guard);

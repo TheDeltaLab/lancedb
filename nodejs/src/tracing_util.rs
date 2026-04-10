@@ -36,9 +36,14 @@ pub fn attach_remote_context(traceparent: &str) -> Option<opentelemetry::Context
         return None;
     }
 
+    // Validate W3C traceparent format: version must be "00", correct field lengths
+    if parts[0] != "00" || parts[1].len() != 32 || parts[2].len() != 16 || parts[3].len() != 2 {
+        return None;
+    }
+
     let trace_id = TraceId::from_hex(parts[1]).ok()?;
     let span_id = SpanId::from_hex(parts[2]).ok()?;
-    let flags = u8::from_str_radix(parts[3], 16).unwrap_or(1);
+    let flags = u8::from_str_radix(parts[3], 16).ok()?;
 
     let span_context = SpanContext::new(
         trace_id,

@@ -79,7 +79,7 @@ Key traits:
 
 - Instrumentation changes inside the Lance library (maintained by upstream)
 - Real-time dashboards or UI visualization
-- Custom metrics (e.g., histograms, counters) — first phase focuses on tracing only
+- Custom metrics beyond I/O tracking (e.g., query-level histograms) — first phase focuses on tracing and basic I/O metrics (read/write bytes, IOPS, duration)
 - CPU profiling (e.g., pprof integration)
 - Memory allocation tracking
 
@@ -208,7 +208,8 @@ use lancedb::profiling;
 profiling::init_json_subscriber();
 
 // Option 2: Use OTLP export
-profiling::init_otlp_subscriber("http://localhost:4317");
+let otlp_config = profiling::OtlpConfig::default();
+let _guard = profiling::init_otlp(otlp_config).unwrap();
 
 // Option 3: User-built subscriber (full control)
 use tracing_subscriber::prelude::*;
@@ -221,10 +222,10 @@ tracing_subscriber::registry()
 #### Node.js Users
 
 ```typescript
-import { initProfiling } from 'vectordb';
+import { initProfiling } from '@lancedb/lancedb';
 
 // Enable OTLP export
-initProfiling({ otlpEndpoint: 'http://localhost:4317' });
+initProfiling({ endpoint: 'http://localhost:4318' });
 
 // Or JSON log output
 initProfiling({ format: 'json' });

@@ -9,7 +9,7 @@
  * 4. Verifies getTraceparent() returns the correct traceparent string
  * 5. Verifies LanceDB operations succeed with the traceparent injected
  *
- * Run:  node --import tsx scripts/test-traceparent.ts
+ * Run:  node scripts/test-traceparent.js
  */
 
 const { context, trace, SpanStatusCode } = require('@opentelemetry/api');

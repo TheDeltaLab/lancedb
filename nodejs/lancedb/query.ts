@@ -91,8 +91,8 @@ export function getTraceparent(): string | undefined {
     const span = otelApi.trace.getActiveSpan();
     if (!span) return undefined;
     const ctx = span.spanContext();
-    if (!ctx.traceId || ctx.traceId === "00000000000000000000000000000000")
-      return undefined;
+    const INVALID_TRACE_ID = "00000000000000000000000000000000";
+    if (!ctx.traceId || ctx.traceId === INVALID_TRACE_ID) return undefined;
     const flags = (ctx.traceFlags ?? 1).toString(16).padStart(2, "0");
     return `00-${ctx.traceId}-${ctx.spanId}-${flags}`;
   } catch {
