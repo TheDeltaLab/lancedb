@@ -194,8 +194,14 @@ impl OriginalScores {
         if batch.num_rows() == 0 {
             return None;
         }
-        let row_ids: UInt64Array = downcast_array(batch.column_by_name(ROW_ID)?);
-        let scores: Float32Array = downcast_array(batch.column_by_name(score_column)?);
+        let row_ids = batch
+            .column_by_name(ROW_ID)?
+            .as_any()
+            .downcast_ref::<UInt64Array>()?;
+        let scores = batch
+            .column_by_name(score_column)?
+            .as_any()
+            .downcast_ref::<Float32Array>()?;
         // Use `entry().or_insert()` so that for duplicate ROW_IDs the *first*
         // occurrence wins, consistent with `dedup_by_row_id` which also keeps
         // the first occurrence.  (`HashMap::collect` would keep the *last*.)
@@ -227,19 +233,27 @@ pub fn restore_original_scores(
         return Ok(results); // column not present, nothing to restore
     };
 
-    let row_ids: UInt64Array =
-        downcast_array(
-            results
-                .column_by_name(ROW_ID)
-                .ok_or_else(|| Error::Runtime {
-                    message: format!(
-                        "cannot restore scores: {} column missing from results",
-                        ROW_ID
-                    ),
-                })?,
-        );
+    let row_ids = results
+        .column_by_name(ROW_ID)
+        .ok_or_else(|| Error::Runtime {
+            message: format!(
+                "cannot restore scores: {} column missing from results",
+                ROW_ID
+            ),
+        })?
+        .as_any()
+        .downcast_ref::<UInt64Array>()
+        .ok_or_else(|| Error::Runtime {
+            message: format!("{} column is not UInt64", ROW_ID),
+        })?;
 
-    let current: Float32Array = downcast_array(results.column(col_idx));
+    let current = results
+        .column(col_idx)
+        .as_any()
+        .downcast_ref::<Float32Array>()
+        .ok_or_else(|| Error::Runtime {
+            message: format!("{} column is not Float32", score_column),
+        })?;
     let restored = Float32Array::from_iter(row_ids.values().iter().enumerate().map(|(i, &id)| {
         match original.map.get(&id) {
             Some(val) => *val, // original value (Some(f32) or None/null)

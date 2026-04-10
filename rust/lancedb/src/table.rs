@@ -500,6 +500,7 @@ impl Table {
     /// # Arguments
     ///
     /// * `filter` if present, only count rows matching the filter
+    #[tracing::instrument(name = "lancedb.table.count_rows", skip_all, fields(table = self.name()))]
     pub async fn count_rows(&self, filter: Option<String>) -> Result<usize> {
         self.inner.count_rows(filter.map(Filter::Sql)).await
     }
@@ -510,6 +511,7 @@ impl Table {
     ///
     /// * `data` data to be added to the Table
     /// * `options` options to control how data is added
+    #[tracing::instrument(name = "lancedb.table.add", skip_all, fields(table = self.name()))]
     pub fn add<T: Scannable + 'static>(&self, data: T) -> AddDataBuilder {
         AddDataBuilder::new(
             self.inner.clone(),
@@ -532,6 +534,7 @@ impl Table {
     /// you are updating many rows (with different ids) then you will get
     /// better performance with a single [`merge_insert`] call instead of
     /// repeatedly calilng this method.
+    #[tracing::instrument(name = "lancedb.table.update", skip_all, fields(table = self.name()))]
     pub fn update(&self) -> UpdateBuilder {
         UpdateBuilder::new(self.inner.clone())
     }
@@ -580,6 +583,7 @@ impl Table {
     /// tbl.delete("id > 5").await.unwrap();
     /// # });
     /// ```
+    #[tracing::instrument(name = "lancedb.table.delete", skip_all, fields(table = self.name(), predicate))]
     pub async fn delete(&self, predicate: &str) -> Result<DeleteResult> {
         self.inner.delete(predicate).await
     }
@@ -645,6 +649,7 @@ impl Table {
     ///     .unwrap();
     /// # });
     /// ```
+    #[tracing::instrument(name = "lancedb.table.create_index", skip_all, fields(table = self.name()))]
     pub fn create_index(&self, columns: &[impl AsRef<str>], index: Index) -> IndexBuilder {
         IndexBuilder::new(
             self.inner.clone(),
@@ -753,6 +758,7 @@ impl Table {
     /// merge_insert.execute(Box::new(new_data)).await.unwrap();
     /// # });
     /// ```
+    #[tracing::instrument(name = "lancedb.table.merge_insert", skip_all, fields(table = self.name()))]
     pub fn merge_insert(&self, on: &[&str]) -> MergeInsertBuilder {
         MergeInsertBuilder::new(
             self.inner.clone(),
@@ -847,6 +853,7 @@ impl Table {
     /// let batches: Vec<RecordBatch> = stream.try_collect().await.unwrap();
     /// # });
     /// ```
+    #[tracing::instrument(name = "lancedb.table.query", skip_all, fields(table = self.name()))]
     pub fn query(&self) -> Query {
         Query::new(self.inner.clone())
     }
@@ -924,6 +931,7 @@ impl Table {
     /// optimize should be run frequently.  A good rule of thumb is to run optimize if
     /// you have added or modified 100,000 or more records or run more than 20 data
     /// modification operations.
+    #[tracing::instrument(name = "lancedb.table.optimize", skip_all, fields(table = self.name()))]
     pub async fn optimize(&self, action: OptimizeAction) -> Result<OptimizeStats> {
         self.inner.optimize(action).await
     }
@@ -2188,6 +2196,7 @@ impl BaseTable for NativeTable {
         TableDefinition::try_from_rich_schema(schema)
     }
 
+    #[tracing::instrument(name = "lancedb.native.count_rows", skip_all, fields(table = self.name))]
     async fn count_rows(&self, filter: Option<Filter>) -> Result<usize> {
         let dataset = self.dataset.get().await?;
         match filter {
@@ -2199,6 +2208,7 @@ impl BaseTable for NativeTable {
         }
     }
 
+    #[tracing::instrument(name = "lancedb.native.add", skip_all, fields(table = self.name))]
     async fn add(&self, mut add: AddDataBuilder) -> Result<AddResult> {
         let table_def = self.table_definition().await?;
 
@@ -2290,6 +2300,7 @@ impl BaseTable for NativeTable {
         Ok(AddResult { version })
     }
 
+    #[tracing::instrument(name = "lancedb.native.create_index", skip_all, fields(table = self.name))]
     async fn create_index(&self, opts: IndexBuilder) -> Result<()> {
         if opts.columns.len() != 1 {
             return Err(Error::Schema {
@@ -2331,6 +2342,7 @@ impl BaseTable for NativeTable {
         Ok(dataset.prewarm_index(index_name).await?)
     }
 
+    #[tracing::instrument(name = "lancedb.native.update", skip_all, fields(table = self.name))]
     async fn update(&self, update: UpdateBuilder) -> Result<UpdateResult> {
         // Delegate to the submodule implementation
         update::execute_update(self, update).await
@@ -2344,6 +2356,7 @@ impl BaseTable for NativeTable {
         query::create_plan(self, query, options).await
     }
 
+    #[tracing::instrument(name = "lancedb.native.query", skip_all, fields(table = self.name))]
     async fn query(
         &self,
         query: &AnyQuery,
@@ -2360,6 +2373,7 @@ impl BaseTable for NativeTable {
         query::analyze_query_plan(self, query, options).await
     }
 
+    #[tracing::instrument(name = "lancedb.native.merge_insert", skip_all, fields(table = self.name))]
     async fn merge_insert(
         &self,
         params: MergeInsertBuilder,
@@ -2368,6 +2382,7 @@ impl BaseTable for NativeTable {
         merge::execute_merge_insert(self, params, new_data).await
     }
 
+    #[tracing::instrument(name = "lancedb.native.delete", skip_all, fields(table = self.name, predicate))]
     /// Delete rows from the table
     async fn delete(&self, predicate: &str) -> Result<DeleteResult> {
         // Delegate to the submodule implementation
@@ -2380,6 +2395,7 @@ impl BaseTable for NativeTable {
         }))
     }
 
+    #[tracing::instrument(name = "lancedb.native.optimize", skip_all, fields(table = self.name))]
     async fn optimize(&self, action: OptimizeAction) -> Result<OptimizeStats> {
         // Delegate to the submodule implementation
         optimize::execute_optimize(self, action).await
@@ -2414,7 +2430,7 @@ impl BaseTable for NativeTable {
             let stats = match dataset.index_statistics(idx.name.as_str()).await {
                 Ok(stats) => stats,
                 Err(e) => {
-                    log::warn!("Failed to get statistics for index {} ({}): {}", idx.name, idx.uuid, e);
+                    tracing::warn!("Failed to get statistics for index {} ({}): {}", idx.name, idx.uuid, e);
                     return None;
                 }
             };
@@ -2422,20 +2438,20 @@ impl BaseTable for NativeTable {
             let stats: serde_json::Value = match serde_json::from_str(&stats) {
                 Ok(stats) => stats,
                 Err(e) => {
-                    log::warn!("Failed to deserialize index statistics for index {} ({}): {}", idx.name, idx.uuid, e);
+                    tracing::warn!("Failed to deserialize index statistics for index {} ({}): {}", idx.name, idx.uuid, e);
                     return None;
                 }
             };
 
             let Some(index_type) = stats.get("index_type").and_then(|v| v.as_str()) else {
-                log::warn!("Index statistics was missing 'index_type' field for index {} ({})", idx.name, idx.uuid);
+                tracing::warn!("Index statistics was missing 'index_type' field for index {} ({})", idx.name, idx.uuid);
                 return None;
             };
 
             let index_type: crate::index::IndexType = match index_type.parse() {
                 Ok(index_type) => index_type,
                 Err(e) => {
-                    log::warn!("Failed to parse index type for index {} ({}): {}", idx.name, idx.uuid, e);
+                    tracing::warn!("Failed to parse index type for index {} ({}): {}", idx.name, idx.uuid, e);
                     return None;
                 }
             };
@@ -2443,7 +2459,7 @@ impl BaseTable for NativeTable {
             let mut columns = Vec::with_capacity(idx.fields.len());
             for field_id in &idx.fields {
                 let Some(field) = dataset.schema().field_by_id(*field_id) else {
-                    log::warn!("The index {} ({}) referenced a field with id {} which does not exist in the schema", idx.name, idx.uuid, field_id);
+                    tracing::warn!("The index {} ({}) referenced a field with id {} which does not exist in the schema", idx.name, idx.uuid, field_id);
                     return None;
                 };
                 columns.push(field.name.clone());
@@ -4207,5 +4223,90 @@ mod tests {
             reads <= 20,
             "Binary search read {reads} manifests for {num_versions} versions, expected <= 20"
         );
+    }
+
+    #[tokio::test]
+    async fn test_query_produces_tracing_span() {
+        use std::sync::{Arc, Mutex};
+        use tracing_subscriber::layer::SubscriberExt;
+
+        // Collect (name, span_id, parent_id) tuples via a custom layer
+        #[derive(Debug, Clone)]
+        struct SpanInfo {
+            name: String,
+            id: u64,
+            parent_id: Option<u64>,
+        }
+        let spans: Arc<Mutex<Vec<SpanInfo>>> = Arc::new(Mutex::new(Vec::new()));
+        let spans_clone = spans.clone();
+
+        struct SpanCollector(Arc<Mutex<Vec<SpanInfo>>>);
+        impl<S: tracing::Subscriber + for<'a> tracing_subscriber::registry::LookupSpan<'a>>
+            tracing_subscriber::Layer<S> for SpanCollector
+        {
+            fn on_new_span(
+                &self,
+                attrs: &tracing::span::Attributes<'_>,
+                id: &tracing::span::Id,
+                ctx: tracing_subscriber::layer::Context<'_, S>,
+            ) {
+                let parent_id = attrs
+                    .parent()
+                    .cloned()
+                    .or_else(|| ctx.current_span().id().cloned())
+                    .map(|pid| pid.into_u64());
+                self.0.lock().unwrap().push(SpanInfo {
+                    name: attrs.metadata().name().to_string(),
+                    id: id.into_u64(),
+                    parent_id,
+                });
+            }
+        }
+
+        let subscriber = tracing_subscriber::registry().with(SpanCollector(spans_clone));
+        let _guard = tracing::subscriber::set_default(subscriber);
+
+        let tmp_dir = tempdir().unwrap();
+        let uri = tmp_dir.path().to_str().unwrap();
+        let db = crate::connect(uri).execute().await.unwrap();
+        let schema = Arc::new(Schema::new(vec![Field::new("id", DataType::Int32, false)]));
+        let data = RecordBatch::try_new(
+            schema.clone(),
+            vec![Arc::new(Int32Array::from(vec![1, 2, 3]))],
+        )
+        .unwrap();
+        let table = db.create_table("test_spans", data).execute().await.unwrap();
+
+        // This should produce a "lancedb.table.query" span
+        let _results = table.query().execute().await.unwrap();
+
+        let collected = spans.lock().unwrap();
+        assert!(
+            collected.iter().any(|s| s.name == "lancedb.table.query"),
+            "Expected 'lancedb.table.query' span, found: {:?}",
+            collected.iter().map(|s| &s.name).collect::<Vec<_>>()
+        );
+
+        // Verify that the query execution span is present
+        let execute_span = collected
+            .iter()
+            .find(|s| s.name == "lancedb.query.execute")
+            .expect("lancedb.query.execute span should exist");
+
+        // Verify parent-child: lancedb.native.query should be a child of
+        // lancedb.query.execute (confirming span propagation works)
+        let native_query = collected.iter().find(|s| s.name == "lancedb.native.query");
+        if let Some(nq) = native_query {
+            assert_eq!(
+                nq.parent_id,
+                Some(execute_span.id),
+                "lancedb.native.query should be a child of lancedb.query.execute"
+            );
+        }
+
+        // All spans should have valid IDs (non-zero)
+        for span in collected.iter() {
+            assert!(span.id > 0, "Span '{}' has invalid id 0", span.name);
+        }
     }
 }

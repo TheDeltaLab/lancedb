@@ -10,7 +10,9 @@ import {
 import {
   ConnectionOptions,
   Connection as LanceDbConnection,
+  ProfilingOptions,
   Session,
+  initProfiling as nativeInitProfiling,
 } from "./native.js";
 
 export {
@@ -74,6 +76,7 @@ export {
   FullTextQueryType,
   Operator,
   Occur,
+  withTraceparent,
 } from "./query";
 
 export {
@@ -111,6 +114,35 @@ export {
   MultiVector,
 } from "./arrow";
 export { IntoSql, packBits } from "./util";
+
+/**
+ * Initialize OTLP profiling for traces, metrics, and logs.
+ *
+ * Sets up the OpenTelemetry pipeline to export telemetry data to
+ * an OTLP-compatible collector (e.g. Grafana Alloy, OpenTelemetry Collector).
+ *
+ * Can be called at any time — the global subscriber installed at module
+ * load supports hot-reloading, so there is no "must call before any
+ * LanceDB operations" constraint.
+ *
+ * Requires the native library to be built with the `profiling-otlp` feature.
+ *
+ * @param options - Optional configuration for the OTLP endpoint.
+ *
+ * @example
+ * ```ts
+ * import { initProfiling } from "lancedb";
+ *
+ * initProfiling({
+ *   otlpEndpoint: "http://localhost:4318",
+ *   serviceName: "my-app",
+ * });
+ * ```
+ */
+export function initProfiling(options?: ProfilingOptions): void {
+  nativeInitProfiling(options ?? undefined);
+}
+export type { ProfilingOptions } from "./native.js";
 
 /**
  * Connect to a LanceDB instance at the given URI.

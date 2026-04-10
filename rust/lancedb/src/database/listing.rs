@@ -341,7 +341,7 @@ impl ListingDatabase {
                 let table_base_uri = if let Some(store) = engine {
                     static WARN_ONCE: std::sync::Once = std::sync::Once::new();
                     WARN_ONCE.call_once(|| {
-                        log::warn!("Specifying engine is not a publicly supported feature in lancedb yet. THE API WILL CHANGE");
+                        tracing::warn!("Specifying engine is not a publicly supported feature in lancedb yet. THE API WILL CHANGE");
                     });
                     let old_scheme = url.scheme().to_string();
                     let new_scheme = format!("{}+{}", old_scheme, store);

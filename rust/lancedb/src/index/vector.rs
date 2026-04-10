@@ -315,7 +315,7 @@ pub(crate) fn suggested_num_sub_vectors(dim: u32) -> u32 {
     } else if dim.is_multiple_of(8) {
         dim / 8
     } else {
-        log::warn!(
+        tracing::warn!(
             "The dimension of the vector is not divisible by 8 or 16, \
                 which may cause performance degradation in PQ"
         );

@@ -4,9 +4,9 @@
 use crate::Error;
 use crate::error::Result;
 use crate::table::BaseTable;
-use log::debug;
 use std::time::{Duration, Instant};
 use tokio::time::sleep;
+use tracing::debug;
 
 const DEFAULT_SLEEP_MS: u64 = 1000;
 const MAX_WAIT: Duration = Duration::from_secs(2 * 60 * 60);

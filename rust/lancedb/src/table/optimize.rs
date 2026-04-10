@@ -12,7 +12,7 @@ use lance::dataset::cleanup::RemovalStats;
 use lance::dataset::optimize::{CompactionMetrics, IndexRemapperOptions, compact_files};
 use lance::index::DatasetIndexExt;
 use lance_index::optimize::OptimizeOptions;
-use log::info;
+use tracing::info;
 
 pub use chrono::Duration;
 pub use lance::dataset::optimize::CompactionOptions;

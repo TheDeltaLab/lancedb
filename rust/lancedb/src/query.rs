@@ -870,6 +870,11 @@ impl ExecutableQuery for Query {
         self.parent.clone().create_plan(&req, options).await
     }
 
+    #[tracing::instrument(
+        name = "lancedb.query.execute",
+        skip_all,
+        fields(query_type = "filter")
+    )]
     async fn execute_with_options(
         &self,
         options: QueryExecutionOptions,
@@ -1349,6 +1354,7 @@ impl ExecutableQuery for VectorQuery {
         self.parent.clone().create_plan(&query, options).await
     }
 
+    #[tracing::instrument(name = "lancedb.query.execute", skip_all, fields(query_type = "vector", top_k = self.request.base.limit.unwrap_or(DEFAULT_TOP_K)))]
     async fn execute_with_options(
         &self,
         options: QueryExecutionOptions,
@@ -1497,6 +1503,7 @@ impl ExecutableQuery for TakeQuery {
         self.parent.clone().create_plan(&req, options).await
     }
 
+    #[tracing::instrument(name = "lancedb.query.execute", skip_all, fields(query_type = "take"))]
     async fn execute_with_options(
         &self,
         options: QueryExecutionOptions,
