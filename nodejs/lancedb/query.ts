@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright The LanceDB Authors
 
+import { AsyncLocalStorage } from "node:async_hooks";
 import {
   Table as ArrowTable,
   type IntoVector,
@@ -20,7 +21,6 @@ import {
   VectorQuery as NativeVectorQuery,
 } from "./native";
 import { Reranker } from "./rerankers";
-import { AsyncLocalStorage } from "node:async_hooks";
 
 /**
  * AsyncLocalStorage used to propagate a W3C traceparent string through
@@ -91,8 +91,8 @@ export async function getTraceparent(): Promise<string | undefined> {
     const span = otelApi.trace.getActiveSpan();
     if (!span) return undefined;
     const ctx = span.spanContext();
-    const INVALID_TRACE_ID = "00000000000000000000000000000000";
-    if (!ctx.traceId || ctx.traceId === INVALID_TRACE_ID) return undefined;
+    const invalidTraceId = "00000000000000000000000000000000";
+    if (!ctx.traceId || ctx.traceId === invalidTraceId) return undefined;
     const flags = (ctx.traceFlags ?? 1).toString(16).padStart(2, "0");
     return `00-${ctx.traceId}-${ctx.spanId}-${flags}`;
   } catch {
