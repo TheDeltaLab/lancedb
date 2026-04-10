@@ -58,11 +58,25 @@ export function withTraceparent<T>(
 
 /**
  * Lazily cached reference to `@opentelemetry/api` module.
- * Avoids calling `require()` on every `getTraceparent()` invocation.
+ *
+ * We kick off an async `import()` at module load time so the module is ready
+ * by the time user code calls `getTraceparent()`.  The `import()` approach
+ * is bundler-friendly (works with Webpack, Vite, Rollup, ESM and CJS) whereas
+ * a bare `require()` would break under `"type": "module"` or ESM-only bundlers.
+ *
+ * If `@opentelemetry/api` is not installed the promise rejects and we set
+ * `otelApi` to `null` so subsequent calls skip the probe entirely.
  * @hidden
  */
 // biome-ignore lint/suspicious/noExplicitAny: dynamic optional dependency
-let otelApi: any | null | undefined; // undefined = not yet probed
+let otelApi: any | null | undefined; // undefined = not yet resolved
+import("@opentelemetry/api")
+  .then((m) => {
+    otelApi = m;
+  })
+  .catch(() => {
+    otelApi = null;
+  });
 
 /**
  * Extract the current W3C traceparent from the active OpenTelemetry span,
@@ -77,15 +91,8 @@ export function getTraceparent(): string | undefined {
     return stored;
   }
 
-  // 2. Try OTel active span (lazy-load the module once)
-  if (otelApi === undefined) {
-    try {
-      otelApi = require("@opentelemetry/api");
-    } catch {
-      otelApi = null; // @opentelemetry/api not installed
-    }
-  }
-  if (otelApi === null) return undefined;
+  // 2. Try OTel active span (probed asynchronously at module load)
+  if (otelApi === undefined || otelApi === null) return undefined;
 
   try {
     const span = otelApi.trace.getActiveSpan();
