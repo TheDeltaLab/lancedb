@@ -662,7 +662,7 @@ export class LocalTable extends Table {
     const schema = await this.schema();
 
     const buffer = await fromDataToBuffer(data, undefined, schema);
-    return await this.inner.add(buffer, mode, getTraceparent());
+    return await this.inner.add(buffer, mode, await getTraceparent());
   }
 
   async update(
@@ -722,15 +722,15 @@ export class LocalTable extends Table {
         columns = Object.entries(optsOrUpdates as Record<string, string>);
         predicate = options?.where;
     }
-    return await this.inner.update(predicate, columns, getTraceparent());
+    return await this.inner.update(predicate, columns, await getTraceparent());
   }
 
   async countRows(filter?: string): Promise<number> {
-    return await this.inner.countRows(filter, getTraceparent());
+    return await this.inner.countRows(filter, await getTraceparent());
   }
 
   async delete(predicate: string): Promise<DeleteResult> {
-    return await this.inner.delete(predicate, getTraceparent());
+    return await this.inner.delete(predicate, await getTraceparent());
   }
 
   async createIndex(column: string, options?: Partial<IndexOptions>) {
@@ -744,7 +744,7 @@ export class LocalTable extends Table {
       options?.waitTimeoutSeconds,
       options?.name,
       options?.train,
-      getTraceparent(),
+      await getTraceparent(),
     );
   }
 
@@ -991,7 +991,7 @@ export class LocalTable extends Table {
       cleanupOlderThanMs,
       options?.deleteUnverified,
       options?.errorIfTaggedOldVersions,
-      getTraceparent(),
+      await getTraceparent(),
     );
   }
 

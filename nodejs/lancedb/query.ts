@@ -58,25 +58,11 @@ export function withTraceparent<T>(
 
 /**
  * Lazily cached reference to `@opentelemetry/api` module.
- *
- * We kick off an async `import()` at module load time so the module is ready
- * by the time user code calls `getTraceparent()`.  The `import()` approach
- * is bundler-friendly (works with Webpack, Vite, Rollup, ESM and CJS) whereas
- * a bare `require()` would break under `"type": "module"` or ESM-only bundlers.
- *
- * If `@opentelemetry/api` is not installed the promise rejects and we set
- * `otelApi` to `null` so subsequent calls skip the probe entirely.
+ * Uses dynamic `import()` for ESM/bundler compatibility.
  * @hidden
  */
 // biome-ignore lint/suspicious/noExplicitAny: dynamic optional dependency
-let otelApi: any | null | undefined; // undefined = not yet resolved
-import("@opentelemetry/api")
-  .then((m) => {
-    otelApi = m;
-  })
-  .catch(() => {
-    otelApi = null;
-  });
+let otelApi: any | null | undefined; // undefined = not yet probed
 
 /**
  * Extract the current W3C traceparent from the active OpenTelemetry span,
@@ -84,15 +70,22 @@ import("@opentelemetry/api")
  * {@link withTraceparent}. Returns `undefined` when neither is available.
  * @hidden
  */
-export function getTraceparent(): string | undefined {
+export async function getTraceparent(): Promise<string | undefined> {
   // 1. Check AsyncLocalStorage (set via withTraceparent)
   const stored = traceparentStorage.getStore();
   if (stored) {
     return stored;
   }
 
-  // 2. Try OTel active span (probed asynchronously at module load)
-  if (otelApi === undefined || otelApi === null) return undefined;
+  // 2. Try OTel active span (lazy-load the module once via dynamic import)
+  if (otelApi === undefined) {
+    try {
+      otelApi = await import("@opentelemetry/api");
+    } catch {
+      otelApi = null; // @opentelemetry/api not installed
+    }
+  }
+  if (otelApi === null) return undefined;
 
   try {
     const span = otelApi.trace.getActiveSpan();
@@ -141,14 +134,14 @@ class RecordBatchIterable<
 
   // biome-ignore lint/suspicious/noExplicitAny: skip
   [Symbol.asyncIterator](): AsyncIterator<RecordBatch<any>, any, undefined> {
-    const traceparent = getTraceparent();
-    return RecordBatchIterator(
+    const innerPromise = getTraceparent().then((traceparent) =>
       this.inner.execute(
         this.options?.maxBatchLength,
         this.options?.timeoutMs,
         traceparent,
       ),
     );
+    return RecordBatchIterator(innerPromise);
   }
 }
 
@@ -290,13 +283,15 @@ export class QueryBase<
   /**
    * @hidden
    */
-  protected nativeExecute(
+  protected async nativeExecute(
     options?: Partial<QueryExecutionOptions>,
   ): Promise<NativeBatchIterator> {
-    const traceparent = getTraceparent();
+    const traceparent = await getTraceparent();
     if (this.inner instanceof Promise) {
-      return this.inner.then((inner) =>
-        inner.execute(options?.maxBatchLength, options?.timeoutMs, traceparent),
+      return (await this.inner).execute(
+        options?.maxBatchLength,
+        options?.timeoutMs,
+        traceparent,
       );
     } else {
       return this.inner.execute(
