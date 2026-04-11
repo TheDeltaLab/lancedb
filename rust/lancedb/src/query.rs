@@ -1327,20 +1327,6 @@ impl VectorQuery {
         };
         Ok(DatasetRecordBatchStream::new(inner).into())
     }
-
-    /// Re-execute the vector query with `use_index = false` (flat search fallback).
-    async fn fallback_flat_search(
-        &self,
-        options: QueryExecutionOptions,
-    ) -> Result<SendableRecordBatchStream> {
-        let mut fallback_request = self.request.clone();
-        fallback_request.use_index = false;
-        let fallback_query = Self {
-            parent: self.parent.clone(),
-            request: fallback_request,
-        };
-        fallback_query.inner_execute_with_options(options).await
-    }
 }
 
 fn single_batch_stream(batch: RecordBatch, max_batch_length: usize) -> SendableRecordBatchStream {
@@ -1380,17 +1366,7 @@ impl ExecutableQuery for VectorQuery {
             return Ok(hybrid_result);
         }
 
-        match self.inner_execute_with_options(options.clone()).await {
-            Ok(stream) => Ok(stream),
-            Err(err) if self.request.use_index && crate::error::is_stale_index_error(&err) => {
-                tracing::warn!(
-                    "Vector index contains stale fragment references, \
-                     falling back to flat search: {err}"
-                );
-                self.fallback_flat_search(options).await
-            }
-            Err(err) => Err(err),
-        }
+        self.inner_execute_with_options(options).await
     }
 
     async fn explain_plan(&self, verbose: bool) -> Result<String> {
