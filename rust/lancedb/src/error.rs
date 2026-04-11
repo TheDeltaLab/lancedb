@@ -156,6 +156,14 @@ impl<T> From<PoisonError<T>> for Error {
     }
 }
 
+/// Check if the error is caused by a stale vector index referencing
+/// deleted fragments. This can happen when compaction removes fragments
+/// but the index still contains ROW_IDs pointing to them.
+pub(crate) fn is_stale_index_error(err: &Error) -> bool {
+    let msg = err.to_string();
+    msg.contains("specified fragment id") && msg.contains("does not exist")
+}
+
 #[cfg(feature = "polars")]
 impl From<polars::prelude::PolarsError> for Error {
     fn from(source: polars::prelude::PolarsError) -> Self {
