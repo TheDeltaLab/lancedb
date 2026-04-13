@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright The LanceDB Authors
 import { Data, Schema, fromDataToBuffer } from "./arrow";
 import { MergeResult, NativeMergeInsertBuilder } from "./native";
+import { getTraceparent } from "./query";
 
 /** A builder used to create and run a merge insert operation */
 export class MergeInsertBuilder {
@@ -109,7 +110,7 @@ export class MergeInsertBuilder {
     }
 
     const buffer = await fromDataToBuffer(data, undefined, schema);
-    return await this.#native.execute(buffer);
+    return await this.#native.execute(buffer, await getTraceparent());
   }
 }
 

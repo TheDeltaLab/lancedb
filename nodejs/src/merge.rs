@@ -6,6 +6,7 @@ use std::time::Duration;
 use lancedb::{arrow::IntoArrow, ipc::ipc_file_to_batches, table::merge::MergeInsertBuilder};
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
+use tracing::Instrument;
 
 use crate::{error::convert_error, table::MergeResult};
 
@@ -51,7 +52,8 @@ impl NativeMergeInsertBuilder {
     }
 
     #[napi(catch_unwind)]
-    pub async fn execute(&self, buf: Buffer) -> napi::Result<MergeResult> {
+    pub async fn execute(&self, buf: Buffer, traceparent: Option<String>) -> napi::Result<MergeResult> {
+        let span = crate::tracing_util::napi_span!(traceparent, "lancedb.napi.merge.execute");
         let data = ipc_file_to_batches(buf.to_vec())
             .and_then(IntoArrow::into_arrow)
             .map_err(|e| {
@@ -60,7 +62,7 @@ impl NativeMergeInsertBuilder {
 
         let this = self.clone();
 
-        let res = this.inner.execute(data).await.map_err(|e| {
+        let res = this.inner.execute(data).instrument(span).await.map_err(|e| {
             napi::Error::from_reason(format!(
                 "Failed to execute merge insert: {}",
                 convert_error(&e)
