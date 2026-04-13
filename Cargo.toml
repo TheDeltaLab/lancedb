@@ -74,7 +74,7 @@ chrono = "0.4"
 
 [workspace.metadata.upstream]
 repository = "https://github.com/lancedb/lancedb"
-version = "0.28.0-beta.1"
+version = "0.28.0-beta.5"
 
 [profile.ci]
 debug = "line-tables-only"
