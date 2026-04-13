@@ -1793,6 +1793,54 @@ describe("when optimizing a dataset", () => {
   });
 });
 
+describe("optimize with tagged old versions", () => {
+  let tmpDir: tmp.DirResult;
+  let table: Table;
+
+  beforeEach(async () => {
+    tmpDir = tmp.dirSync({ unsafeCleanup: true });
+    const con = await connect(tmpDir.name);
+    table = await con.createTable("tagged_test", [{ id: 1 }]);
+    // Create multiple versions
+    await table.add([{ id: 2 }]);
+    await table.add([{ id: 3 }]);
+    await table.add([{ id: 4 }]);
+    // Tag an old version (version 1)
+    const tags = await table.tags();
+    await tags.create("keep-me", 1);
+  });
+
+  afterEach(() => {
+    tmpDir.removeCallback();
+  });
+
+  it("skips tagged old versions when errorIfTaggedOldVersions is false", async () => {
+    const stats = await table.optimize({
+      cleanupOlderThan: new Date(),
+      errorIfTaggedOldVersions: false,
+    });
+    // Should succeed — tagged version silently skipped
+    expect(stats.prune.oldVersionsRemoved).toBeGreaterThanOrEqual(0);
+  });
+
+  it("skips tagged old versions by default (no option)", async () => {
+    const stats = await table.optimize({
+      cleanupOlderThan: new Date(),
+    });
+    // Should succeed — default is false
+    expect(stats.prune.oldVersionsRemoved).toBeGreaterThanOrEqual(0);
+  });
+
+  it("errors when errorIfTaggedOldVersions is true", async () => {
+    await expect(
+      table.optimize({
+        cleanupOlderThan: new Date(),
+        errorIfTaggedOldVersions: true,
+      }),
+    ).rejects.toThrow("tagged version");
+  });
+});
+
 describe.each([arrow15, arrow16, arrow17, arrow18])(
   "when optimizing a dataset",
   // biome-ignore lint/suspicious/noExplicitAny: <explanation>
