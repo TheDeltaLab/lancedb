@@ -12,6 +12,7 @@ use crate::ConnectionOptions;
 use crate::error::NapiErrorExt;
 use crate::table::Table;
 use lancedb::connection::{ConnectBuilder, Connection as LanceDBConnection};
+use tracing::Instrument;
 
 use lancedb::ipc::{ipc_file_to_batches, ipc_file_to_schema};
 
@@ -51,7 +52,13 @@ impl Connection {
 impl Connection {
     /// Create a new Connection instance from the given URI.
     #[napi(factory)]
-    pub async fn new(uri: String, options: ConnectionOptions) -> napi::Result<Self> {
+    pub async fn new(
+        uri: String,
+        options: ConnectionOptions,
+        traceparent: Option<String>,
+    ) -> napi::Result<Self> {
+        let span = crate::tracing_util::napi_span!(traceparent, "lancedb.napi.connection.new");
+
         let mut builder = ConnectBuilder::new(&uri);
         if let Some(interval) = options.read_consistency_interval {
             builder =
@@ -67,7 +74,9 @@ impl Connection {
             builder = builder.session(session.inner.clone());
         }
 
-        Ok(Self::inner_new(builder.execute().await.default_error()?))
+        Ok(Self::inner_new(
+            builder.execute().instrument(span).await.default_error()?,
+        ))
     }
 
     #[napi]
@@ -92,7 +101,10 @@ impl Connection {
         namespace_path: Option<Vec<String>>,
         start_after: Option<String>,
         limit: Option<u32>,
+        traceparent: Option<String>,
     ) -> napi::Result<Vec<String>> {
+        let span = crate::tracing_util::napi_span!(traceparent, "lancedb.napi.connection.table_names");
+
         let mut op = self.get_inner()?.table_names();
         op = op.namespace(namespace_path.unwrap_or_default());
         if let Some(start_after) = start_after {
@@ -101,7 +113,7 @@ impl Connection {
         if let Some(limit) = limit {
             op = op.limit(limit);
         }
-        op.execute().await.default_error()
+        op.execute().instrument(span).await.default_error()
     }
 
     /// Create table from a Apache Arrow IPC (file) buffer.
@@ -118,7 +130,10 @@ impl Connection {
         mode: String,
         namespace_path: Option<Vec<String>>,
         storage_options: Option<HashMap<String, String>>,
+        traceparent: Option<String>,
     ) -> napi::Result<Table> {
+        let span = crate::tracing_util::napi_span!(traceparent, "lancedb.napi.connection.create_table");
+
         let batches = ipc_file_to_batches(buf.to_vec())
             .map_err(|e| napi::Error::from_reason(format!("Failed to read IPC file: {}", e)))?;
         let mode = Self::parse_create_mode_str(&mode)?;
@@ -131,7 +146,7 @@ impl Connection {
                 builder = builder.storage_option(key, value);
             }
         }
-        let tbl = builder.execute().await.default_error()?;
+        let tbl = builder.execute().instrument(span).await.default_error()?;
         Ok(Table::new(tbl))
     }
 
@@ -143,7 +158,10 @@ impl Connection {
         mode: String,
         namespace_path: Option<Vec<String>>,
         storage_options: Option<HashMap<String, String>>,
+        traceparent: Option<String>,
     ) -> napi::Result<Table> {
+        let span = crate::tracing_util::napi_span!(traceparent, "lancedb.napi.connection.create_empty_table");
+
         let schema = ipc_file_to_schema(schema_buf.to_vec()).map_err(|e| {
             napi::Error::from_reason(format!("Failed to marshal schema from JS to Rust: {}", e))
         })?;
@@ -160,7 +178,7 @@ impl Connection {
                 builder = builder.storage_option(key, value);
             }
         }
-        let tbl = builder.execute().await.default_error()?;
+        let tbl = builder.execute().instrument(span).await.default_error()?;
         Ok(Table::new(tbl))
     }
 
@@ -171,7 +189,10 @@ impl Connection {
         namespace_path: Option<Vec<String>>,
         storage_options: Option<HashMap<String, String>>,
         index_cache_size: Option<u32>,
+        traceparent: Option<String>,
     ) -> napi::Result<Table> {
+        let span = crate::tracing_util::napi_span!(traceparent, "lancedb.napi.connection.open_table");
+
         let mut builder = self.get_inner()?.open_table(&name);
 
         builder = builder.namespace(namespace_path.unwrap_or_default());
@@ -184,7 +205,7 @@ impl Connection {
         if let Some(index_cache_size) = index_cache_size {
             builder = builder.index_cache_size(index_cache_size);
         }
-        let tbl = builder.execute().await.default_error()?;
+        let tbl = builder.execute().instrument(span).await.default_error()?;
         Ok(Table::new(tbl))
     }
 
@@ -197,7 +218,10 @@ impl Connection {
         source_version: Option<i64>,
         source_tag: Option<String>,
         is_shallow: bool,
+        traceparent: Option<String>,
     ) -> napi::Result<Table> {
+        let span = crate::tracing_util::napi_span!(traceparent, "lancedb.napi.connection.clone_table");
+
         let mut builder = self
             .get_inner()?
             .clone_table(&target_table_name, &source_uri);
@@ -214,7 +238,7 @@ impl Connection {
 
         builder = builder.is_shallow(is_shallow);
 
-        let tbl = builder.execute().await.default_error()?;
+        let tbl = builder.execute().instrument(span).await.default_error()?;
         Ok(Table::new(tbl))
     }
 
@@ -224,17 +248,29 @@ impl Connection {
         &self,
         name: String,
         namespace_path: Option<Vec<String>>,
+        traceparent: Option<String>,
     ) -> napi::Result<()> {
+        let span = crate::tracing_util::napi_span!(traceparent, "lancedb.napi.connection.drop_table");
         let ns = namespace_path.unwrap_or_default();
         self.get_inner()?
             .drop_table(&name, &ns)
+            .instrument(span)
             .await
             .default_error()
     }
 
     #[napi(catch_unwind)]
-    pub async fn drop_all_tables(&self, namespace_path: Option<Vec<String>>) -> napi::Result<()> {
+    pub async fn drop_all_tables(
+        &self,
+        namespace_path: Option<Vec<String>>,
+        traceparent: Option<String>,
+    ) -> napi::Result<()> {
+        let span = crate::tracing_util::napi_span!(traceparent, "lancedb.napi.connection.drop_all_tables");
         let ns = namespace_path.unwrap_or_default();
-        self.get_inner()?.drop_all_tables(&ns).await.default_error()
+        self.get_inner()?
+            .drop_all_tables(&ns)
+            .instrument(span)
+            .await
+            .default_error()
     }
 }

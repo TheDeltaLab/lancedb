@@ -764,7 +764,11 @@ export class LocalTable extends Table {
   }
 
   takeOffsets(offsets: number[]): TakeQuery {
-    return new TakeQuery(this.inner.takeOffsets(offsets));
+    return new TakeQuery(
+      getTraceparent().then((traceparent) =>
+        this.inner.takeOffsets(offsets, traceparent),
+      ),
+    );
   }
 
   takeRowIds(rowIds: readonly (bigint | number)[]): TakeQuery {
@@ -784,11 +788,17 @@ export class LocalTable extends Table {
       return BigInt(id);
     });
 
-    return new TakeQuery(this.inner.takeRowIds(ids));
+    return new TakeQuery(
+      getTraceparent().then((traceparent) =>
+        this.inner.takeRowIds(ids, traceparent),
+      ),
+    );
   }
 
   query(): Query {
-    return new Query(this.inner);
+    return new Query(
+      getTraceparent().then((traceparent) => this.inner.query(traceparent)),
+    );
   }
 
   search(
@@ -925,14 +935,15 @@ export class LocalTable extends Table {
   }
 
   async checkout(version: number | string): Promise<void> {
+    const traceparent = await getTraceparent();
     if (typeof version === "string") {
-      return this.inner.checkoutTag(version);
+      return this.inner.checkoutTag(version, traceparent);
     }
-    return this.inner.checkout(version);
+    return this.inner.checkout(version, traceparent);
   }
 
   async checkoutLatest(): Promise<void> {
-    await this.inner.checkoutLatest();
+    await this.inner.checkoutLatest(await getTraceparent());
   }
 
   async listVersions(): Promise<Version[]> {

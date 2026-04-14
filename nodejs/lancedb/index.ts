@@ -14,6 +14,7 @@ import {
   Session,
   initProfiling as nativeInitProfiling,
 } from "./native.js";
+import { getTraceparent } from "./query";
 
 export {
   AddColumnsSql,
@@ -236,6 +237,10 @@ export async function connect(
     (<ConnectionOptions>finalOptions).storageOptions,
   );
 
-  const nativeConn = await LanceDbConnection.new(uri, finalOptions);
+  const nativeConn = await LanceDbConnection.new(
+    uri,
+    finalOptions,
+    await getTraceparent(),
+  );
   return new LocalConnection(nativeConn);
 }

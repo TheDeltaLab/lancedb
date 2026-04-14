@@ -241,12 +241,20 @@ impl Table {
     }
 
     #[napi(catch_unwind)]
-    pub fn query(&self) -> napi::Result<Query> {
+    pub fn query(&self, traceparent: Option<String>) -> napi::Result<Query> {
+        let span = crate::tracing_util::napi_span!(traceparent, "lancedb.napi.table.query");
+        let _guard = span.enter();
         Ok(Query::new(self.inner_ref()?.query()))
     }
 
     #[napi(catch_unwind)]
-    pub fn take_offsets(&self, offsets: Vec<i64>) -> napi::Result<TakeQuery> {
+    pub fn take_offsets(
+        &self,
+        offsets: Vec<i64>,
+        traceparent: Option<String>,
+    ) -> napi::Result<TakeQuery> {
+        let span = crate::tracing_util::napi_span!(traceparent, "lancedb.napi.table.take_offsets");
+        let _guard = span.enter();
         Ok(TakeQuery::new(
             self.inner_ref()?.take_offsets(
                 offsets
@@ -265,7 +273,13 @@ impl Table {
     }
 
     #[napi(catch_unwind)]
-    pub fn take_row_ids(&self, row_ids: Vec<BigInt>) -> napi::Result<TakeQuery> {
+    pub fn take_row_ids(
+        &self,
+        row_ids: Vec<BigInt>,
+        traceparent: Option<String>,
+    ) -> napi::Result<TakeQuery> {
+        let span = crate::tracing_util::napi_span!(traceparent, "lancedb.napi.table.take_row_ids");
+        let _guard = span.enter();
         Ok(TakeQuery::new(
             self.inner_ref()?.take_row_ids(
                 row_ids
@@ -290,8 +304,12 @@ impl Table {
     }
 
     #[napi(catch_unwind)]
-    pub fn vector_search(&self, vector: Float32Array) -> napi::Result<VectorQuery> {
-        self.query()?.nearest_to(vector)
+    pub fn vector_search(
+        &self,
+        vector: Float32Array,
+        traceparent: Option<String>,
+    ) -> napi::Result<VectorQuery> {
+        self.query(traceparent)?.nearest_to(vector)
     }
 
     #[napi(catch_unwind)]
@@ -379,24 +397,33 @@ impl Table {
     }
 
     #[napi(catch_unwind)]
-    pub async fn checkout(&self, version: i64) -> napi::Result<()> {
+    pub async fn checkout(&self, version: i64, traceparent: Option<String>) -> napi::Result<()> {
+        let span = crate::tracing_util::napi_span!(traceparent, "lancedb.napi.table.checkout");
         self.inner_ref()?
             .checkout(version as u64)
+            .instrument(span)
             .await
             .default_error()
     }
 
     #[napi(catch_unwind)]
-    pub async fn checkout_tag(&self, tag: String) -> napi::Result<()> {
+    pub async fn checkout_tag(&self, tag: String, traceparent: Option<String>) -> napi::Result<()> {
+        let span = crate::tracing_util::napi_span!(traceparent, "lancedb.napi.table.checkout_tag");
         self.inner_ref()?
             .checkout_tag(tag.as_str())
+            .instrument(span)
             .await
             .default_error()
     }
 
     #[napi(catch_unwind)]
-    pub async fn checkout_latest(&self) -> napi::Result<()> {
-        self.inner_ref()?.checkout_latest().await.default_error()
+    pub async fn checkout_latest(&self, traceparent: Option<String>) -> napi::Result<()> {
+        let span = crate::tracing_util::napi_span!(traceparent, "lancedb.napi.table.checkout_latest");
+        self.inner_ref()?
+            .checkout_latest()
+            .instrument(span)
+            .await
+            .default_error()
     }
 
     #[napi(catch_unwind)]

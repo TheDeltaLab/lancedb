@@ -16,7 +16,6 @@ import {
   JsFullTextQuery,
   RecordBatchIterator as NativeBatchIterator,
   Query as NativeQuery,
-  Table as NativeTable,
   TakeQuery as NativeTakeQuery,
   VectorQuery as NativeVectorQuery,
 } from "./native";
@@ -803,7 +802,7 @@ export class VectorQuery extends StandardQueryBase<NativeVectorQuery> {
  * @hideconstructor
  */
 export class TakeQuery extends QueryBase<NativeTakeQuery> {
-  constructor(inner: NativeTakeQuery) {
+  constructor(inner: NativeTakeQuery | Promise<NativeTakeQuery>) {
     super(inner);
   }
 }
@@ -818,8 +817,8 @@ export class Query extends StandardQueryBase<NativeQuery> {
   /**
    * @hidden
    */
-  constructor(tbl: NativeTable) {
-    super(tbl.query());
+  constructor(inner: NativeQuery | Promise<NativeQuery>) {
+    super(inner);
   }
 
   /**
