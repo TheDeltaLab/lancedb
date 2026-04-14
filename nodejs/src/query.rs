@@ -162,7 +162,7 @@ impl Query {
                     convert_error(&e)
                 ))
             })?;
-        Ok(RecordBatchIterator::new(inner_stream))
+        Ok(RecordBatchIterator::new(inner_stream, traceparent))
     }
 
     #[napi]
@@ -367,7 +367,7 @@ impl VectorQuery {
                     convert_error(&e)
                 ))
             })?;
-        Ok(RecordBatchIterator::new(inner_stream))
+        Ok(RecordBatchIterator::new(inner_stream, traceparent))
     }
 
     #[napi]
@@ -450,7 +450,7 @@ impl TakeQuery {
                     convert_error(&e)
                 ))
             })?;
-        Ok(RecordBatchIterator::new(inner_stream))
+        Ok(RecordBatchIterator::new(inner_stream, traceparent))
     }
 
     #[napi]
