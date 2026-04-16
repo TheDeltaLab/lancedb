@@ -215,6 +215,7 @@ impl Connection {
         Ok(Table::new(tbl))
     }
 
+    #[allow(clippy::too_many_arguments)]
     #[napi(catch_unwind)]
     pub async fn clone_table(
         &self,
