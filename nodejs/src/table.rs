@@ -418,7 +418,8 @@ impl Table {
 
     #[napi(catch_unwind)]
     pub async fn checkout_latest(&self, traceparent: Option<String>) -> napi::Result<()> {
-        let span = crate::tracing_util::napi_span!(traceparent, "lancedb.napi.table.checkout_latest");
+        let span =
+            crate::tracing_util::napi_span!(traceparent, "lancedb.napi.table.checkout_latest");
         self.inner_ref()?
             .checkout_latest()
             .instrument(span)

@@ -103,7 +103,8 @@ impl Connection {
         limit: Option<u32>,
         traceparent: Option<String>,
     ) -> napi::Result<Vec<String>> {
-        let span = crate::tracing_util::napi_span!(traceparent, "lancedb.napi.connection.table_names");
+        let span =
+            crate::tracing_util::napi_span!(traceparent, "lancedb.napi.connection.table_names");
 
         let mut op = self.get_inner()?.table_names();
         op = op.namespace(namespace_path.unwrap_or_default());
@@ -132,7 +133,8 @@ impl Connection {
         storage_options: Option<HashMap<String, String>>,
         traceparent: Option<String>,
     ) -> napi::Result<Table> {
-        let span = crate::tracing_util::napi_span!(traceparent, "lancedb.napi.connection.create_table");
+        let span =
+            crate::tracing_util::napi_span!(traceparent, "lancedb.napi.connection.create_table");
 
         let batches = ipc_file_to_batches(buf.to_vec())
             .map_err(|e| napi::Error::from_reason(format!("Failed to read IPC file: {}", e)))?;
@@ -160,7 +162,10 @@ impl Connection {
         storage_options: Option<HashMap<String, String>>,
         traceparent: Option<String>,
     ) -> napi::Result<Table> {
-        let span = crate::tracing_util::napi_span!(traceparent, "lancedb.napi.connection.create_empty_table");
+        let span = crate::tracing_util::napi_span!(
+            traceparent,
+            "lancedb.napi.connection.create_empty_table"
+        );
 
         let schema = ipc_file_to_schema(schema_buf.to_vec()).map_err(|e| {
             napi::Error::from_reason(format!("Failed to marshal schema from JS to Rust: {}", e))
@@ -191,7 +196,8 @@ impl Connection {
         index_cache_size: Option<u32>,
         traceparent: Option<String>,
     ) -> napi::Result<Table> {
-        let span = crate::tracing_util::napi_span!(traceparent, "lancedb.napi.connection.open_table");
+        let span =
+            crate::tracing_util::napi_span!(traceparent, "lancedb.napi.connection.open_table");
 
         let mut builder = self.get_inner()?.open_table(&name);
 
@@ -220,7 +226,8 @@ impl Connection {
         is_shallow: bool,
         traceparent: Option<String>,
     ) -> napi::Result<Table> {
-        let span = crate::tracing_util::napi_span!(traceparent, "lancedb.napi.connection.clone_table");
+        let span =
+            crate::tracing_util::napi_span!(traceparent, "lancedb.napi.connection.clone_table");
 
         let mut builder = self
             .get_inner()?
@@ -250,7 +257,8 @@ impl Connection {
         namespace_path: Option<Vec<String>>,
         traceparent: Option<String>,
     ) -> napi::Result<()> {
-        let span = crate::tracing_util::napi_span!(traceparent, "lancedb.napi.connection.drop_table");
+        let span =
+            crate::tracing_util::napi_span!(traceparent, "lancedb.napi.connection.drop_table");
         let ns = namespace_path.unwrap_or_default();
         self.get_inner()?
             .drop_table(&name, &ns)
@@ -265,7 +273,8 @@ impl Connection {
         namespace_path: Option<Vec<String>>,
         traceparent: Option<String>,
     ) -> napi::Result<()> {
-        let span = crate::tracing_util::napi_span!(traceparent, "lancedb.napi.connection.drop_all_tables");
+        let span =
+            crate::tracing_util::napi_span!(traceparent, "lancedb.napi.connection.drop_all_tables");
         let ns = namespace_path.unwrap_or_default();
         self.get_inner()?
             .drop_all_tables(&ns)

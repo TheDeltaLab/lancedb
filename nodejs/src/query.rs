@@ -347,7 +347,8 @@ impl VectorQuery {
         timeout_ms: Option<u32>,
         traceparent: Option<String>,
     ) -> napi::Result<RecordBatchIterator> {
-        let stream_span = crate::tracing_util::napi_span!(traceparent, "lancedb.napi.vector_query.stream");
+        let stream_span =
+            crate::tracing_util::napi_span!(traceparent, "lancedb.napi.vector_query.stream");
         let execute_span =
             tracing::info_span!(parent: &stream_span, "lancedb.napi.vector_query.execute");
 
@@ -432,7 +433,8 @@ impl TakeQuery {
         timeout_ms: Option<u32>,
         traceparent: Option<String>,
     ) -> napi::Result<RecordBatchIterator> {
-        let stream_span = crate::tracing_util::napi_span!(traceparent, "lancedb.napi.take_query.stream");
+        let stream_span =
+            crate::tracing_util::napi_span!(traceparent, "lancedb.napi.take_query.stream");
         let execute_span =
             tracing::info_span!(parent: &stream_span, "lancedb.napi.take_query.execute");
 
