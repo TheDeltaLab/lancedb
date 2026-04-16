@@ -764,11 +764,7 @@ export class LocalTable extends Table {
   }
 
   takeOffsets(offsets: number[]): TakeQuery {
-    return new TakeQuery(
-      getTraceparent().then((traceparent) =>
-        this.inner.takeOffsets(offsets, traceparent),
-      ),
-    );
+    return new TakeQuery(this.inner.takeOffsets(offsets));
   }
 
   takeRowIds(rowIds: readonly (bigint | number)[]): TakeQuery {
@@ -788,17 +784,11 @@ export class LocalTable extends Table {
       return BigInt(id);
     });
 
-    return new TakeQuery(
-      getTraceparent().then((traceparent) =>
-        this.inner.takeRowIds(ids, traceparent),
-      ),
-    );
+    return new TakeQuery(this.inner.takeRowIds(ids));
   }
 
   query(): Query {
-    return new Query(
-      getTraceparent().then((traceparent) => this.inner.query(traceparent)),
-    );
+    return new Query(this.inner.query());
   }
 
   search(
