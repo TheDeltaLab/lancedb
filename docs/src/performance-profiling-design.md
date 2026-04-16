@@ -237,7 +237,7 @@ Following OpenTelemetry semantic convention style:
 
 | Span Name | Structured Fields |
 |-----------|-------------------|
-| `lancedb.table.query` | `table`, `query_type`, `top_k`, `filter` |
+| `lancedb.query.execute` | `query_type`, `top_k` |
 | `lancedb.table.add` | `table`, `num_rows`, `mode` |
 | `lancedb.table.delete` | `table`, `predicate` |
 | `lancedb.table.optimize` | `table`, `action` |

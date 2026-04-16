@@ -788,7 +788,7 @@ export class LocalTable extends Table {
   }
 
   query(): Query {
-    return new Query(this.inner);
+    return new Query(this.inner.query());
   }
 
   search(
@@ -925,14 +925,15 @@ export class LocalTable extends Table {
   }
 
   async checkout(version: number | string): Promise<void> {
+    const traceparent = await getTraceparent();
     if (typeof version === "string") {
-      return this.inner.checkoutTag(version);
+      return this.inner.checkoutTag(version, traceparent);
     }
-    return this.inner.checkout(version);
+    return this.inner.checkout(version, traceparent);
   }
 
   async checkoutLatest(): Promise<void> {
-    await this.inner.checkoutLatest();
+    await this.inner.checkoutLatest(await getTraceparent());
   }
 
   async listVersions(): Promise<Version[]> {

@@ -122,6 +122,16 @@ describe.each([arrow15, arrow16, arrow17, arrow18])(
       expect(table.countRows()).rejects.toThrow("Table some_table is closed");
     });
 
+    it("should throw synchronously for closed-table builder entrypoints", () => {
+      table.close();
+
+      expect(() => table.query()).toThrow("Table some_table is closed");
+      expect(() => table.takeOffsets([0])).toThrow(
+        "Table some_table is closed",
+      );
+      expect(() => table.takeRowIds([0])).toThrow("Table some_table is closed");
+    });
+
     it("should let me update values", async () => {
       await table.add([{ id: 1 }]);
       expect(await table.countRows("id == 1")).toBe(1);

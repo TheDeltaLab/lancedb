@@ -16,6 +16,7 @@ import {
 } from "./arrow";
 import { EmbeddingFunctionConfig, getRegistry } from "./embedding/registry";
 import { Connection as LanceDbConnection } from "./native";
+import { getTraceparent } from "./query";
 import { sanitizeTable } from "./sanitize";
 import { LocalTable, Table } from "./table";
 
@@ -338,6 +339,7 @@ export class LocalConnection extends Connection {
       namespacePath ?? [],
       tableNamesOptions?.startAfter,
       tableNamesOptions?.limit,
+      await getTraceparent(),
     );
   }
 
@@ -351,6 +353,7 @@ export class LocalConnection extends Connection {
       namespacePath ?? [],
       cleanseStorageOptions(options?.storageOptions),
       options?.indexCacheSize,
+      await getTraceparent(),
     );
 
     return new LocalTable(innerTable);
@@ -373,6 +376,7 @@ export class LocalConnection extends Connection {
       options?.sourceVersion ?? null,
       options?.sourceTag ?? null,
       options?.isShallow ?? true,
+      await getTraceparent(),
     );
 
     return new LocalTable(innerTable);
@@ -455,6 +459,7 @@ export class LocalConnection extends Connection {
       mode,
       namespacePath ?? [],
       storageOptions,
+      await getTraceparent(),
     );
 
     return new LocalTable(innerTable);
@@ -502,16 +507,24 @@ export class LocalConnection extends Connection {
       mode,
       namespacePath ?? [],
       storageOptions,
+      await getTraceparent(),
     );
     return new LocalTable(innerTable);
   }
 
   async dropTable(name: string, namespacePath?: string[]): Promise<void> {
-    return this.inner.dropTable(name, namespacePath ?? []);
+    return this.inner.dropTable(
+      name,
+      namespacePath ?? [],
+      await getTraceparent(),
+    );
   }
 
   async dropAllTables(namespacePath?: string[]): Promise<void> {
-    return this.inner.dropAllTables(namespacePath ?? []);
+    return this.inner.dropAllTables(
+      namespacePath ?? [],
+      await getTraceparent(),
+    );
   }
 }
 

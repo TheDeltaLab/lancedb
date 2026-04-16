@@ -853,7 +853,6 @@ impl Table {
     /// let batches: Vec<RecordBatch> = stream.try_collect().await.unwrap();
     /// # });
     /// ```
-    #[tracing::instrument(name = "lancedb.table.query", skip_all, fields(table = self.name()))]
     pub fn query(&self) -> Query {
         Query::new(self.inner.clone())
     }
@@ -4226,7 +4225,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_query_produces_tracing_span() {
+    async fn test_query_execution_produces_tracing_span() {
         use std::sync::{Arc, Mutex};
         use tracing_subscriber::layer::SubscriberExt;
 
@@ -4277,13 +4276,12 @@ mod tests {
         .unwrap();
         let table = db.create_table("test_spans", data).execute().await.unwrap();
 
-        // This should produce a "lancedb.table.query" span
         let _results = table.query().execute().await.unwrap();
 
         let collected = spans.lock().unwrap();
         assert!(
-            collected.iter().any(|s| s.name == "lancedb.table.query"),
-            "Expected 'lancedb.table.query' span, found: {:?}",
+            collected.iter().all(|s| s.name != "lancedb.table.query"),
+            "Did not expect 'lancedb.table.query' span, found: {:?}",
             collected.iter().map(|s| &s.name).collect::<Vec<_>>()
         );
 
