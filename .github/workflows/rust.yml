@@ -5,6 +5,7 @@ on:
     paths:
       - Cargo.toml
       - Cargo.lock
+      - rust-toolchain.toml
       - rust/**
       - .github/workflows/rust.yml
 
