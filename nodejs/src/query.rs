@@ -154,7 +154,7 @@ impl Query {
         let inner_stream = self
             .inner
             .execute_with_options(execution_opts)
-            .instrument(span.clone())
+            .instrument(span)
             .await
             .map_err(|e| {
                 napi::Error::from_reason(format!(
@@ -162,7 +162,7 @@ impl Query {
                     convert_error(&e)
                 ))
             })?;
-        Ok(RecordBatchIterator::new_with_span(inner_stream, span))
+        Ok(RecordBatchIterator::new(inner_stream))
     }
 
     #[napi]
@@ -359,7 +359,7 @@ impl VectorQuery {
         let inner_stream = self
             .inner
             .execute_with_options(execution_opts)
-            .instrument(span.clone())
+            .instrument(span)
             .await
             .map_err(|e| {
                 napi::Error::from_reason(format!(
@@ -367,7 +367,7 @@ impl VectorQuery {
                     convert_error(&e)
                 ))
             })?;
-        Ok(RecordBatchIterator::new_with_span(inner_stream, span))
+        Ok(RecordBatchIterator::new(inner_stream))
     }
 
     #[napi]
@@ -442,7 +442,7 @@ impl TakeQuery {
         let inner_stream = self
             .inner
             .execute_with_options(execution_opts)
-            .instrument(span.clone())
+            .instrument(span)
             .await
             .map_err(|e| {
                 napi::Error::from_reason(format!(
@@ -450,7 +450,7 @@ impl TakeQuery {
                     convert_error(&e)
                 ))
             })?;
-        Ok(RecordBatchIterator::new_with_span(inner_stream, span))
+        Ok(RecordBatchIterator::new(inner_stream))
     }
 
     #[napi]
