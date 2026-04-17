@@ -68,16 +68,19 @@ let otelApi: any | null | undefined; // undefined = not yet probed
  * Extract the current W3C traceparent from the active OpenTelemetry span,
  * if `@opentelemetry/api` is installed. Falls back to the value set via
  * {@link withTraceparent}. Returns `undefined` when neither is available.
+ *
+ * Priority order:
+ *   1. Active OpenTelemetry span — always the most specific parent, since
+ *      `tracer.startActiveSpan(...)` makes a freshly-opened JS span the
+ *      active one, and Rust spans should nest under it.
+ *   2. AsyncLocalStorage value set via {@link withTraceparent} — used as
+ *      a fallback for frameworks that break OTel's async context (e.g.
+ *      some adapters around node:http) or when `@opentelemetry/api` is
+ *      not installed.
  * @hidden
  */
 export async function getTraceparent(): Promise<string | undefined> {
-  // 1. Check AsyncLocalStorage (set via withTraceparent)
-  const stored = traceparentStorage.getStore();
-  if (stored) {
-    return stored;
-  }
-
-  // 2. Try OTel active span (lazy-load the module once via dynamic import)
+  // 1. Try OTel active span first (lazy-load the module once via dynamic import)
   if (otelApi === undefined) {
     try {
       otelApi = await import("@opentelemetry/api");
@@ -85,19 +88,29 @@ export async function getTraceparent(): Promise<string | undefined> {
       otelApi = null; // @opentelemetry/api not installed
     }
   }
-  if (otelApi === null) return undefined;
-
-  try {
-    const span = otelApi.trace.getActiveSpan();
-    if (!span) return undefined;
-    const ctx = span.spanContext();
-    const invalidTraceId = "00000000000000000000000000000000";
-    if (!ctx.traceId || ctx.traceId === invalidTraceId) return undefined;
-    const flags = (ctx.traceFlags ?? 1).toString(16).padStart(2, "0");
-    return `00-${ctx.traceId}-${ctx.spanId}-${flags}`;
-  } catch {
-    return undefined;
+  if (otelApi !== null) {
+    try {
+      const span = otelApi.trace.getActiveSpan();
+      if (span) {
+        const ctx = span.spanContext();
+        const invalidTraceId = "00000000000000000000000000000000";
+        if (ctx.traceId && ctx.traceId !== invalidTraceId) {
+          const flags = (ctx.traceFlags ?? 1).toString(16).padStart(2, "0");
+          return `00-${ctx.traceId}-${ctx.spanId}-${flags}`;
+        }
+      }
+    } catch {
+      // fall through to ALS fallback
+    }
   }
+
+  // 2. Fall back to AsyncLocalStorage (set via withTraceparent)
+  const stored = traceparentStorage.getStore();
+  if (stored) {
+    return stored;
+  }
+
+  return undefined;
 }
 
 export async function* RecordBatchIterator(
