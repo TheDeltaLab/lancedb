@@ -2292,8 +2292,6 @@ mod tests {
 
         let request = ConnectRequest {
             uri: uri.clone(),
-            #[cfg(feature = "remote")]
-            client_config: Default::default(),
             options: Default::default(),
             namespace_client_properties: Default::default(),
             manifest_enabled: false,
@@ -2321,8 +2319,6 @@ mod tests {
         let with_query = format!("{}?foo=bar", uri);
         let request_with_query = ConnectRequest {
             uri: with_query,
-            #[cfg(feature = "remote")]
-            client_config: Default::default(),
             options: Default::default(),
             namespace_client_properties: Default::default(),
             manifest_enabled: false,
@@ -2455,8 +2451,6 @@ mod tests {
 
         let request = ConnectRequest {
             uri: uri.to_string(),
-            #[cfg(feature = "remote")]
-            client_config: Default::default(),
             options: Default::default(),
             namespace_client_properties,
             manifest_enabled: false,
