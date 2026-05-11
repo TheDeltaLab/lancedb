@@ -10,9 +10,9 @@ use bytes::Bytes;
 use futures::stream::BoxStream;
 use lance::io::WrappingObjectStore;
 use object_store::{
-    GetOptions, GetResult, ListResult, MultipartUpload, ObjectMeta, ObjectStore,
-    PutMultipartOptions, PutOptions, PutPayload, PutResult, Result as OSResult, UploadPart,
-    path::Path,
+    CopyOptions, GetOptions, GetResult, ListResult, MultipartUpload, ObjectMeta, ObjectStore,
+    PutMultipartOptions, PutOptions, PutPayload, PutResult, RenameOptions, Result as OSResult,
+    UploadPart, path::Path,
 };
 use tracing::Instrument;
 
@@ -164,18 +164,6 @@ impl IoTrackingStore {
 #[async_trait::async_trait]
 #[deny(clippy::missing_trait_methods)]
 impl ObjectStore for IoTrackingStore {
-    async fn put(&self, location: &Path, bytes: PutPayload) -> OSResult<PutResult> {
-        let num_bytes = bytes.content_length() as u64;
-        let start = std::time::Instant::now();
-        let result = self
-            .target
-            .put(location, bytes)
-            .instrument(tracing::info_span!("lancedb.io.put", path = %location, bytes = num_bytes))
-            .await;
-        self.record_write(num_bytes, "put", start.elapsed().as_secs_f64() * 1000.0);
-        result
-    }
-
     async fn put_opts(
         &self,
         location: &Path,
@@ -193,16 +181,6 @@ impl ObjectStore for IoTrackingStore {
         result
     }
 
-    async fn put_multipart(&self, location: &Path) -> OSResult<Box<dyn MultipartUpload>> {
-        let target = self.target.put_multipart(location).await?;
-        Ok(Box::new(IoTrackingMultipartUpload {
-            target,
-            stats: self.stats.clone(),
-            #[cfg(feature = "profiling-otlp")]
-            metrics: self.metrics.clone(),
-        }))
-    }
-
     async fn put_multipart_opts(
         &self,
         location: &Path,
@@ -217,20 +195,6 @@ impl ObjectStore for IoTrackingStore {
         }))
     }
 
-    async fn get(&self, location: &Path) -> OSResult<GetResult> {
-        let start = std::time::Instant::now();
-        let result = self
-            .target
-            .get(location)
-            .instrument(tracing::info_span!("lancedb.io.get", path = %location))
-            .await;
-        if let Ok(result) = &result {
-            let num_bytes = result.range.end - result.range.start;
-            self.record_read(num_bytes, "get", start.elapsed().as_secs_f64() * 1000.0);
-        }
-        result
-    }
-
     async fn get_opts(&self, location: &Path, options: GetOptions) -> OSResult<GetResult> {
         let start = std::time::Instant::now();
         let result = self
@@ -241,23 +205,6 @@ impl ObjectStore for IoTrackingStore {
         if let Ok(result) = &result {
             let num_bytes = result.range.end - result.range.start;
             self.record_read(num_bytes, "get", start.elapsed().as_secs_f64() * 1000.0);
-        }
-        result
-    }
-
-    async fn get_range(&self, location: &Path, range: std::ops::Range<u64>) -> OSResult<Bytes> {
-        let start = std::time::Instant::now();
-        let result = self
-            .target
-            .get_range(location, range)
-            .instrument(tracing::info_span!("lancedb.io.get_range", path = %location))
-            .await;
-        if let Ok(result) = &result {
-            self.record_read(
-                result.len() as u64,
-                "get_range",
-                start.elapsed().as_secs_f64() * 1000.0,
-            );
         }
         result
     }
@@ -281,24 +228,11 @@ impl ObjectStore for IoTrackingStore {
         result
     }
 
-    async fn head(&self, location: &Path) -> OSResult<ObjectMeta> {
-        let start = std::time::Instant::now();
-        let result = self.target.head(location).await;
-        self.record_read(0, "head", start.elapsed().as_secs_f64() * 1000.0);
-        result
-    }
-
-    async fn delete(&self, location: &Path) -> OSResult<()> {
-        let start = std::time::Instant::now();
-        let result = self.target.delete(location).await;
-        self.record_write(0, "delete", start.elapsed().as_secs_f64() * 1000.0);
-        result
-    }
-
-    fn delete_stream<'a>(
-        &'a self,
-        locations: BoxStream<'a, OSResult<Path>>,
-    ) -> BoxStream<'a, OSResult<Path>> {
+    fn delete_stream(
+        &self,
+        locations: BoxStream<'static, OSResult<Path>>,
+    ) -> BoxStream<'static, OSResult<Path>> {
+        self.record_write(0, "delete_stream", 0.0);
         self.target.delete_stream(locations)
     }
 
@@ -326,31 +260,17 @@ impl ObjectStore for IoTrackingStore {
         result
     }
 
-    async fn copy(&self, from: &Path, to: &Path) -> OSResult<()> {
+    async fn copy_opts(&self, from: &Path, to: &Path, options: CopyOptions) -> OSResult<()> {
         let start = std::time::Instant::now();
-        let result = self.target.copy(from, to).await;
+        let result = self.target.copy_opts(from, to, options).await;
         self.record_write(0, "copy", start.elapsed().as_secs_f64() * 1000.0);
         result
     }
 
-    async fn rename(&self, from: &Path, to: &Path) -> OSResult<()> {
+    async fn rename_opts(&self, from: &Path, to: &Path, options: RenameOptions) -> OSResult<()> {
         let start = std::time::Instant::now();
-        let result = self.target.rename(from, to).await;
+        let result = self.target.rename_opts(from, to, options).await;
         self.record_write(0, "rename", start.elapsed().as_secs_f64() * 1000.0);
-        result
-    }
-
-    async fn rename_if_not_exists(&self, from: &Path, to: &Path) -> OSResult<()> {
-        let start = std::time::Instant::now();
-        let result = self.target.rename_if_not_exists(from, to).await;
-        self.record_write(0, "rename", start.elapsed().as_secs_f64() * 1000.0);
-        result
-    }
-
-    async fn copy_if_not_exists(&self, from: &Path, to: &Path) -> OSResult<()> {
-        let start = std::time::Instant::now();
-        let result = self.target.copy_if_not_exists(from, to).await;
-        self.record_write(0, "copy", start.elapsed().as_secs_f64() * 1000.0);
         result
     }
 }
@@ -404,6 +324,7 @@ impl MultipartUpload for IoTrackingMultipartUpload {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use object_store::ObjectStoreExt;
 
     /// Helper: poison a Mutex<IoStats> by panicking while holding the lock.
     fn poison_stats(stats: &Arc<Mutex<IoStats>>) {

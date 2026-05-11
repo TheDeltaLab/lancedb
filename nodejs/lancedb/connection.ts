@@ -43,7 +43,7 @@ export interface CreateTableOptions {
    * Options already set on the connection will be inherited by the table,
    * but can be overridden here.
    *
-   * The available options are described at https://lancedb.com/docs/storage/
+   * The available options are described at https://docs.lancedb.com/storage/
    */
   storageOptions?: Record<string, string>;
 
@@ -79,7 +79,7 @@ export interface OpenTableOptions {
    * Options already set on the connection will be inherited by the table,
    * but can be overridden here.
    *
-   * The available options are described at https://lancedb.com/docs/storage/
+   * The available options are described at https://docs.lancedb.com/storage/
    */
   storageOptions?: Record<string, string>;
   /**

@@ -1,12 +1,68 @@
-[**@delta-ai/lancedb**](../README.md) • **Docs**
+[**@lancedb/lancedb**](../README.md) • **Docs**
 
 ***
 
-[@delta-ai/lancedb](../globals.md) / ConnectionOptions
+[@lancedb/lancedb](../globals.md) / ConnectionOptions
 
 # Interface: ConnectionOptions
 
 ## Properties
+
+### apiKey?
+
+```ts
+optional apiKey: string;
+```
+
+(For LanceDB cloud only): the API key to use with LanceDB Cloud.
+
+Can also be set via the environment variable `LANCEDB_API_KEY`.
+
+***
+
+### clientConfig?
+
+```ts
+optional clientConfig: ClientConfig;
+```
+
+(For LanceDB cloud only): configuration for the remote HTTP client.
+
+***
+
+### hostOverride?
+
+```ts
+optional hostOverride: string;
+```
+
+(For LanceDB cloud only): the host to use for LanceDB cloud. Used
+for testing purposes.
+
+***
+
+### manifestEnabled?
+
+```ts
+optional manifestEnabled: boolean;
+```
+
+(For LanceDB OSS only): use directory namespace manifests as the source
+of truth for table metadata. Existing directory-listed root tables are
+migrated into the manifest on access.
+
+***
+
+### namespaceClientProperties?
+
+```ts
+optional namespaceClientProperties: Record<string, string>;
+```
+
+(For LanceDB OSS only): extra properties for the backing namespace
+client used by manifest-enabled native connections.
+
+***
 
 ### readConsistencyInterval?
 
@@ -26,13 +82,24 @@ always consistent.
 
 ***
 
+### region?
+
+```ts
+optional region: string;
+```
+
+(For LanceDB cloud only): the region to use for LanceDB cloud.
+Defaults to 'us-east-1'.
+
+***
+
 ### session?
 
 ```ts
 optional session: Session;
 ```
 
-The session to use for this connection. Holds
+(For LanceDB OSS only): the session to use for this connection. Holds
 shared caches and other session-specific state.
 
 ***
@@ -43,6 +110,6 @@ shared caches and other session-specific state.
 optional storageOptions: Record<string, string>;
 ```
 
-Configuration for object storage.
+(For LanceDB OSS only): configuration for object storage.
 
-The available options are described at https://lancedb.com/docs/storage/
+The available options are described at https://docs.lancedb.com/storage/

@@ -29,24 +29,24 @@ lance-encoding = { "branch" = "main", "git" = "https://github.com/TheDeltaLab/la
 lance-arrow = { "branch" = "main", "git" = "https://github.com/TheDeltaLab/lance.git" }
 ahash = "0.8"
 # Note that this one does not include pyarrow
-arrow = { version = "57.2", optional = false }
-arrow-array = "57.2"
-arrow-data = "57.2"
-arrow-ipc = "57.2"
-arrow-ord = "57.2"
-arrow-schema = "57.2"
-arrow-select = "57.2"
-arrow-cast = "57.2"
+arrow = { version = "58.0.0", optional = false }
+arrow-array = "58.0.0"
+arrow-data = "58.0.0"
+arrow-ipc = "58.0.0"
+arrow-ord = "58.0.0"
+arrow-schema = "58.0.0"
+arrow-select = "58.0.0"
+arrow-cast = "58.0.0"
 async-trait = "0"
-datafusion = { version = "52.1", default-features = false }
-datafusion-catalog = "52.1"
-datafusion-common = { version = "52.1", default-features = false }
-datafusion-execution = "52.1"
-datafusion-expr = "52.1"
-datafusion-functions = "52.1"
-datafusion-physical-plan = "52.1"
-datafusion-physical-expr = "52.1"
-datafusion-sql = "52.1"
+datafusion = { version = "53.0.0", default-features = false }
+datafusion-catalog = "53.0.0"
+datafusion-common = { version = "53.0.0", default-features = false }
+datafusion-execution = "53.0.0"
+datafusion-expr = "53.0.0"
+datafusion-functions = "53.0.0"
+datafusion-physical-plan = "53.0.0"
+datafusion-physical-expr = "53.0.0"
+datafusion-sql = "53.0.0"
 env_logger = "0.11"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "json", "env-filter", "registry"] }
@@ -61,7 +61,7 @@ half = { "version" = "2.7.1", default-features = false, features = [
 futures = "0"
 log = "0.4"
 moka = { version = "0.12", features = ["future"] }
-object_store = "0.12.0"
+object_store = "0.13.2"
 pin-project = "1.0.7"
 rand = "0.9"
 snafu = "0.8"
@@ -74,7 +74,7 @@ chrono = "0.4"
 
 [workspace.metadata.upstream]
 repository = "https://github.com/lancedb/lancedb"
-version = "0.28.0-beta.5"
+version = "0.28.0-beta.11"
 
 [profile.ci]
 debug = "line-tables-only"
