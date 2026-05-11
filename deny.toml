@@ -168,6 +168,5 @@ allow-registry = ["https://github.com/rust-lang/crates.io-index"]
 # Lance is developed in a sibling repo and pulled as a git dependency until
 # releases are cut to crates.io. Allow that specific host.
 allow-git = [
-    "https://github.com/lance-format/lance",
     "https://github.com/TheDeltaLab/lance",
 ]
