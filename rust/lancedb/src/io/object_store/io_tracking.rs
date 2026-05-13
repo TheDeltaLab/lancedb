@@ -7,7 +7,7 @@ use std::{
 };
 
 use bytes::Bytes;
-use futures::stream::BoxStream;
+use futures::stream::{BoxStream, StreamExt};
 use lance::io::WrappingObjectStore;
 use object_store::{
     CopyOptions, GetOptions, GetResult, ListResult, MultipartUpload, ObjectMeta, ObjectStore,
@@ -232,8 +232,23 @@ impl ObjectStore for IoTrackingStore {
         &self,
         locations: BoxStream<'static, OSResult<Path>>,
     ) -> BoxStream<'static, OSResult<Path>> {
-        self.record_write(0, "delete_stream", 0.0);
-        self.target.delete_stream(locations)
+        let stats = self.stats.clone();
+        #[cfg(feature = "profiling-otlp")]
+        let metrics = self.metrics.clone();
+        self.target
+            .delete_stream(locations)
+            .inspect(move |result| {
+                if result.is_ok() {
+                    let mut s = stats.lock().unwrap_or_else(|e| e.into_inner());
+                    s.write_iops += 1;
+                    #[cfg(feature = "profiling-otlp")]
+                    if let Some(ref m) = metrics {
+                        let attrs = [opentelemetry::KeyValue::new("op", "delete_stream")];
+                        m.write_count.add(1, &attrs);
+                    }
+                }
+            })
+            .boxed()
     }
 
     // list/list_with_offset return a stream whose lifetime we cannot time
