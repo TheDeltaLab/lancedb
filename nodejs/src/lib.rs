@@ -39,9 +39,16 @@ pub struct ConnectionOptions {
     pub read_consistency_interval: Option<f64>,
     /// Configuration for object storage.
     ///
-    /// The available options are described at https://lancedb.com/docs/storage/
+    /// The available options are described at https://docs.lancedb.com/storage/
     pub storage_options: Option<HashMap<String, String>>,
-    /// The session to use for this connection. Holds
+    /// (For LanceDB OSS only): use directory namespace manifests as the source
+    /// of truth for table metadata. Existing directory-listed root tables are
+    /// migrated into the manifest on access.
+    pub manifest_enabled: Option<bool>,
+    /// (For LanceDB OSS only): extra properties for the backing namespace
+    /// client used by manifest-enabled native connections.
+    pub namespace_client_properties: Option<HashMap<String, String>>,
+    /// (For LanceDB OSS only): the session to use for this connection. Holds
     /// shared caches and other session-specific state.
     pub session: Option<session::Session>,
 }

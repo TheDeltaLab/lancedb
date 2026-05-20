@@ -8,6 +8,29 @@
 
 ## Properties
 
+### manifestEnabled?
+
+```ts
+optional manifestEnabled: boolean;
+```
+
+(For LanceDB OSS only): use directory namespace manifests as the source
+of truth for table metadata. Existing directory-listed root tables are
+migrated into the manifest on access.
+
+***
+
+### namespaceClientProperties?
+
+```ts
+optional namespaceClientProperties: Record<string, string>;
+```
+
+(For LanceDB OSS only): extra properties for the backing namespace
+client used by manifest-enabled native connections.
+
+***
+
 ### readConsistencyInterval?
 
 ```ts
@@ -32,7 +55,7 @@ always consistent.
 optional session: Session;
 ```
 
-The session to use for this connection. Holds
+(For LanceDB OSS only): the session to use for this connection. Holds
 shared caches and other session-specific state.
 
 ***
@@ -45,4 +68,4 @@ optional storageOptions: Record<string, string>;
 
 Configuration for object storage.
 
-The available options are described at https://lancedb.com/docs/storage/
+The available options are described at https://docs.lancedb.com/storage/

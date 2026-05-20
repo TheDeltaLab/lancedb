@@ -6,8 +6,14 @@ on:
       - Cargo.toml
       - Cargo.lock
       - rust-toolchain.toml
+      - deny.toml
       - rust/**
+      - nodejs/Cargo.toml
+      - python/Cargo.toml
       - .github/workflows/rust.yml
+
+permissions:
+  contents: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -47,6 +53,17 @@ jobs:
         run: cargo fmt --all -- --check
       - name: Run clippy
         run: cargo clippy --profile ci --workspace --tests --all-features -- -D warnings
+
+  deny:
+    # Supply-chain checks: advisories, licenses, banned crates, and source
+    # restrictions. Configuration lives in `deny.toml` at the workspace root.
+    timeout-minutes: 10
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check advisories bans licenses sources
 
   build-no-lock:
     runs-on: ubuntu-24.04
@@ -148,7 +165,7 @@ jobs:
     runs-on: ubuntu-24.04
     strategy:
       matrix:
-        msrv: ["1.91.0"] # This should match up with rust-version in Cargo.toml
+        msrv: ["1.91.1"] # This should match up with rust-version in Cargo.toml
     env:
       # Need up-to-date compilers for kernels
       CC: clang-18
