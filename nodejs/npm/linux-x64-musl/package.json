@@ -1,12 +1,8 @@
 {
 	"name": "@delta-ai/lancedb-linux-x64-musl",
 	"version": "0.1.5",
-	"os": [
-		"linux"
-	],
-	"cpu": [
-		"x64"
-	],
+	"os": ["linux"],
+	"cpu": ["x64"],
 	"main": "lancedb.linux-x64-musl.node",
 	"files": [
 		"lancedb.linux-x64-musl.node"
