@@ -139,10 +139,9 @@ jobs:
         npm test
     - name: Check docs
       run: |
-        # We run this as part of the job because the binary needs to be built
-        # first to export the types of the native code.
+        # Dependencies already installed in the Build step above; just run
+        # typedoc directly (npm ci removed since we migrated to pnpm).
         set -e
-        npm ci
         npm run docs
         if ! git diff --exit-code -- ../ ':(exclude)Cargo.lock'; then
           echo "Docs need to be updated"
