@@ -134,7 +134,6 @@ jobs:
       env:
         OPENAI_API_KEY: test
         OPENAI_BASE_URL: http://0.0.0.0:8000
-        NODE_OPTIONS: "--experimental-vm-modules"
       run: |
         node ../../ci/mock_openai.js &
         npm test
