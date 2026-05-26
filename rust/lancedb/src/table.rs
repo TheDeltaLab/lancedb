@@ -505,7 +505,7 @@ pub trait BaseTable: std::fmt::Display + std::fmt::Debug + Send + Sync {
     /// Prewarm data columns into cache.
     async fn prewarm_data(&self, _columns: Option<Vec<String>>) -> Result<()> {
         Err(Error::NotSupported {
-            message: "prewarm_data is not supported on this table type".into(),
+            message: "prewarm_data is currently only supported on remote tables".into(),
         })
     }
     /// Get statistics about the index.
