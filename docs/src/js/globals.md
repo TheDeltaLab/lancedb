@@ -85,7 +85,6 @@
 - [RemovalStats](interfaces/RemovalStats.md)
 - [RenameTableOptions](interfaces/RenameTableOptions.md)
 - [RestNamespaceConfig](interfaces/RestNamespaceConfig.md)
-- [RetryConfig](interfaces/RetryConfig.md)
 - [ScannableOptions](interfaces/ScannableOptions.md)
 - [ShuffleOptions](interfaces/ShuffleOptions.md)
 - [SplitCalculatedOptions](interfaces/SplitCalculatedOptions.md)
