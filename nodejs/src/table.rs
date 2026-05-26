@@ -9,6 +9,7 @@ use lancedb::table::{
     OptimizeAction, OptimizeOptions, Table as LanceDbTable, Utc,
 };
 use napi::bindgen_prelude::*;
+use napi::threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode};
 use napi_derive::napi;
 use tracing::Instrument;
 
@@ -68,12 +69,16 @@ impl Table {
         schema_to_buffer(&schema)
     }
 
-    #[napi(catch_unwind)]
+    #[napi(
+        catch_unwind,
+        ts_args_type = "buf: Buffer, mode: string, traceparent?: string | undefined | null, progressCallback?: (progress: WriteProgressInfo) => void"
+    )]
     pub async fn add(
         &self,
         buf: Buffer,
         mode: String,
         traceparent: Option<String>,
+        progress_callback: Option<ProgressFn>,
     ) -> napi::Result<AddResult> {
         let span = crate::tracing_util::napi_span!(traceparent, "lancedb.napi.table.add");
 
@@ -99,6 +104,29 @@ impl Table {
         } else {
             return Err(napi::Error::from_reason(format!("Invalid mode: {}", mode)));
         };
+
+        if let Some(tsfn) = progress_callback {
+            let warned = std::sync::atomic::AtomicBool::new(false);
+            op = op.progress(move |p| {
+                // NonBlocking: dispatch onto the JS event loop without
+                // blocking the writer thread.  With napi-rs's default
+                // unbounded queue, events are not dropped — a slow JS
+                // callback will just queue them.
+                let status = tsfn.call(
+                    WriteProgressInfo::from(p),
+                    ThreadsafeFunctionCallMode::NonBlocking,
+                );
+                if status != napi::Status::Ok
+                    && !warned.swap(true, std::sync::atomic::Ordering::Relaxed)
+                {
+                    tracing::warn!(
+                        "Progress callback TSFN call failed with status {:?}; \
+                         further failures will be silently dropped",
+                        status
+                    );
+                }
+            });
+        }
 
         let res = op.execute().instrument(span).await.default_error()?;
         Ok(res.into())
@@ -185,6 +213,14 @@ impl Table {
     pub async fn prewarm_index(&self, index_name: String) -> napi::Result<()> {
         self.inner_ref()?
             .prewarm_index(&index_name)
+            .await
+            .default_error()
+    }
+
+    #[napi(catch_unwind)]
+    pub async fn prewarm_data(&self, columns: Option<Vec<String>>) -> napi::Result<()> {
+        self.inner_ref()?
+            .prewarm_data(columns)
             .await
             .default_error()
     }
@@ -385,6 +421,31 @@ impl Table {
             .await
             .default_error()?;
         Ok(res.into())
+    }
+
+    #[napi(catch_unwind)]
+    pub async fn set_unenforced_primary_key(&self, columns: Vec<String>) -> napi::Result<()> {
+        self.inner_ref()?
+            .set_unenforced_primary_key(columns)
+            .await
+            .default_error()
+    }
+
+    #[napi(catch_unwind)]
+    pub async fn set_lsm_write_spec(&self, spec: LsmWriteSpec) -> napi::Result<()> {
+        let native_spec = lancedb::table::LsmWriteSpec::try_from(spec)?;
+        self.inner_ref()?
+            .set_lsm_write_spec(native_spec)
+            .await
+            .default_error()
+    }
+
+    #[napi(catch_unwind)]
+    pub async fn unset_lsm_write_spec(&self) -> napi::Result<()> {
+        self.inner_ref()?
+            .unset_lsm_write_spec()
+            .await
+            .default_error()
     }
 
     #[napi(catch_unwind)]
@@ -637,6 +698,63 @@ impl From<lancedb::index::IndexConfig> for IndexConfig {
     }
 }
 
+/// Specification selecting Lance's MemWAL LSM-style write path for
+/// `mergeInsert`.
+///
+/// `specType` must be `"bucket"`, `"identity"`, or `"unsharded"`. For
+/// `"bucket"`, `column` and `numBuckets` are required; for `"identity"`,
+/// `column` is required.
+#[napi(object)]
+#[derive(Clone, Debug)]
+pub struct LsmWriteSpec {
+    /// One of `"bucket"`, `"identity"`, or `"unsharded"`.
+    pub spec_type: String,
+    /// Bucket and identity variants: the sharding column.
+    pub column: Option<String>,
+    /// Bucket variant: the number of buckets, in `[1, 1024]`.
+    pub num_buckets: Option<u32>,
+    /// Names of indexes the MemWAL should keep up to date during writes.
+    pub maintained_indexes: Option<Vec<String>>,
+    /// Default `ShardWriter` configuration recorded in the MemWAL index.
+    pub writer_config_defaults: Option<HashMap<String, String>>,
+}
+
+impl TryFrom<LsmWriteSpec> for lancedb::table::LsmWriteSpec {
+    type Error = napi::Error;
+
+    fn try_from(value: LsmWriteSpec) -> napi::Result<Self> {
+        let maintained = value.maintained_indexes.unwrap_or_default();
+        let writer_config_defaults = value.writer_config_defaults.unwrap_or_default();
+        let spec = match value.spec_type.as_str() {
+            "bucket" => {
+                let column = value.column.ok_or_else(|| {
+                    napi::Error::from_reason("LsmWriteSpec bucket requires `column`")
+                })?;
+                let num_buckets = value.num_buckets.ok_or_else(|| {
+                    napi::Error::from_reason("LsmWriteSpec bucket requires `numBuckets`")
+                })?;
+                Self::bucket(column, num_buckets)
+            }
+            "identity" => {
+                let column = value.column.ok_or_else(|| {
+                    napi::Error::from_reason("LsmWriteSpec identity requires `column`")
+                })?;
+                Self::identity(column)
+            }
+            "unsharded" => Self::unsharded(),
+            other => {
+                return Err(napi::Error::from_reason(format!(
+                    "LsmWriteSpec `specType` must be 'bucket', 'identity', or 'unsharded', got '{}'",
+                    other
+                )));
+            }
+        };
+        Ok(spec
+            .with_maintained_indexes(maintained)
+            .with_writer_config_defaults(writer_config_defaults))
+    }
+}
+
 /// Statistics about a compaction operation.
 #[napi(object)]
 #[derive(Clone, Debug)]
@@ -670,6 +788,44 @@ pub struct OptimizeStats {
     /// Statistics about the removal operation
     pub prune: RemovalStats,
 }
+
+/// Progress snapshot for a write operation, delivered to the JS callback
+/// passed to `Table.add`.
+#[napi(object)]
+#[derive(Clone, Debug)]
+pub struct WriteProgressInfo {
+    /// Number of rows written so far.
+    pub output_rows: i64,
+    /// Number of bytes written so far.
+    pub output_bytes: i64,
+    /// Total rows expected, if the input source reports it.
+    /// Always set on the final callback (where `done` is `true`).
+    pub total_rows: Option<i64>,
+    /// Wall-clock seconds since monitoring started.
+    pub elapsed_seconds: f64,
+    /// Number of parallel write tasks currently in flight.
+    pub active_tasks: i64,
+    /// Total number of parallel write tasks (the write parallelism).
+    pub total_tasks: i64,
+    /// `true` for the final callback; `false` otherwise.
+    pub done: bool,
+}
+
+impl From<&lancedb::table::write_progress::WriteProgress> for WriteProgressInfo {
+    fn from(p: &lancedb::table::write_progress::WriteProgress) -> Self {
+        Self {
+            output_rows: p.output_rows() as i64,
+            output_bytes: p.output_bytes() as i64,
+            total_rows: p.total_rows().map(|n| n as i64),
+            elapsed_seconds: p.elapsed().as_secs_f64(),
+            active_tasks: p.active_tasks() as i64,
+            total_tasks: p.total_tasks() as i64,
+            done: p.done(),
+        }
+    }
+}
+
+type ProgressFn = ThreadsafeFunction<WriteProgressInfo, (), WriteProgressInfo, Status, false>;
 
 ///  A definition of a column alteration. The alteration changes the column at
 /// `path` to have the new name `name`, to be nullable if `nullable` is true,

@@ -28,6 +28,7 @@ import {
   List,
   Schema,
   SchemaLike,
+  Struct,
   Type,
   Uint8,
   Utf8,
@@ -113,6 +114,48 @@ describe.each([arrow15, arrow16, arrow17, arrow18])(
       expect(addRes.version).toBe(2);
       await table.add([{ id: 1 }], { mode: "overwrite" });
       await expect(table.countRows()).resolves.toBe(1);
+    });
+
+    it("should invoke the progress callback", async () => {
+      const events: import("../lancedb").WriteProgress[] = [];
+      await table.add([{ id: 1 }, { id: 2 }, { id: 3 }], {
+        progress: (p) => events.push(p),
+      });
+
+      expect(events.length).toBeGreaterThan(0);
+      const last = events[events.length - 1];
+      expect(last.done).toBe(true);
+      // Earlier callbacks must have done=false.
+      for (const ev of events.slice(0, -1)) {
+        expect(ev.done).toBe(false);
+      }
+      // outputRows reflects the rows added in this call, not table size.
+      expect(last.outputRows).toBe(3);
+      // The input source (an array) reports a row count, so totalRows is set.
+      expect(last.totalRows).toBe(3);
+      // outputRows is monotonic.
+      for (let i = 1; i < events.length; i++) {
+        expect(events[i].outputRows).toBeGreaterThanOrEqual(
+          events[i - 1].outputRows,
+        );
+      }
+    });
+
+    it("should swallow errors thrown from the progress callback", async () => {
+      const warn = jest
+        .spyOn(console, "warn")
+        .mockImplementation(() => undefined);
+      try {
+        const res = await table.add([{ id: 1 }, { id: 2 }], {
+          progress: () => {
+            throw new Error("callback bomb");
+          },
+        });
+        expect(res.version).toBeGreaterThan(0);
+        expect(warn).toHaveBeenCalled();
+      } finally {
+        warn.mockRestore();
+      }
     });
 
     it("should let me close the table", async () => {
@@ -746,6 +789,113 @@ describe("When creating an index", () => {
     await tbl.dropIndex("vec_idx");
     const indices2 = await tbl.listIndices();
     expect(indices2.length).toBe(0);
+  });
+
+  it("should create and search a nested vector index", async () => {
+    const db = await connect(tmpDir.name);
+    const nestedSchema = new Schema([
+      new Field("id", new Int32(), true),
+      new Field(
+        "image",
+        new Struct([
+          new Field(
+            "embedding",
+            new FixedSizeList(2, new Field("item", new Float32(), true)),
+            true,
+          ),
+        ]),
+        true,
+      ),
+    ]);
+    const nestedTable = await db.createTable(
+      "nested_vector",
+      makeArrowTable(
+        Array.from({ length: 300 }, (_, id) => ({
+          id,
+          image: { embedding: [id, id + 1] },
+        })),
+        { schema: nestedSchema },
+      ),
+    );
+
+    await nestedTable.createIndex("image.embedding", {
+      name: "image_embedding_idx",
+    });
+    const indices = await nestedTable.listIndices();
+    expect(indices).toContainEqual({
+      name: "image_embedding_idx",
+      indexType: "IvfPq",
+      columns: ["image.embedding"],
+    });
+
+    const explicit = await nestedTable
+      .query()
+      .nearestTo([0.0, 1.0])
+      .column("image.embedding")
+      .limit(1)
+      .toArray();
+    const inferred = await nestedTable
+      .query()
+      .nearestTo([0.0, 1.0])
+      .limit(1)
+      .toArray();
+    expect(inferred[0].id).toEqual(explicit[0].id);
+  });
+
+  it("should report multiple nested vector candidates", async () => {
+    const db = await connect(tmpDir.name);
+    const nestedSchema = new Schema([
+      new Field(
+        "image",
+        new Struct([
+          new Field(
+            "embedding",
+            new FixedSizeList(2, new Field("item", new Float32(), true)),
+            true,
+          ),
+        ]),
+        true,
+      ),
+      new Field(
+        "text",
+        new Struct([
+          new Field(
+            "embedding",
+            new FixedSizeList(2, new Field("item", new Float32(), true)),
+            true,
+          ),
+        ]),
+        true,
+      ),
+    ]);
+    const nestedTable = await db.createTable(
+      "multiple_nested_vectors",
+      makeArrowTable(
+        [
+          {
+            image: { embedding: [0.0, 1.0] },
+            text: { embedding: [2.0, 3.0] },
+          },
+        ],
+        { schema: nestedSchema },
+      ),
+    );
+
+    await expect(
+      nestedTable.query().nearestTo([0.0, 1.0]).limit(1).toArray(),
+    ).rejects.toThrow(/image\.embedding.*text\.embedding/);
+  });
+
+  it("should report when no default vector column exists", async () => {
+    const db = await connect(tmpDir.name);
+    const noVectorTable = await db.createTable(
+      "no_vector",
+      makeArrowTable([{ id: 0, label: "cat" }]),
+    );
+
+    await expect(
+      noVectorTable.query().nearestTo([0.0, 1.0]).limit(1).toArray(),
+    ).rejects.toThrow(/No vector column/);
   });
 
   it("should wait for index readiness", async () => {
@@ -2033,6 +2183,25 @@ describe.each([arrow15, arrow16, arrow17, arrow18])(
       expect(results.length).toBe(3);
     });
 
+    test("prewarmData errors on local tables", async () => {
+      const db = await connect(tmpDir.name);
+      const data = [
+        { text: "alpha", vector: [0.1, 0.2, 0.3] },
+        { text: "beta", vector: [0.4, 0.5, 0.6] },
+      ];
+      const table = await db.createTable("prewarm_data_test", data);
+
+      // prewarmData is only supported on remote tables. We verify the call
+      // is wired through napi and surfaces the expected error for both
+      // arg shapes (undefined and string[]).
+      await expect(table.prewarmData()).rejects.toThrow(
+        "prewarm_data is currently only supported on remote tables",
+      );
+      await expect(table.prewarmData(["text"])).rejects.toThrow(
+        "prewarm_data is currently only supported on remote tables",
+      );
+    });
+
     test("full text index on list", async () => {
       const db = await connect(tmpDir.name);
       const data = [
@@ -2490,5 +2659,132 @@ describe("when creating a table with Float32Array vectors", () => {
     expect(fsl.children[0].type.typeId).toBe(Type.Float);
     // precision: HALF=0, SINGLE=1, DOUBLE=2
     expect((fsl.children[0].type as Float32).precision).toBe(1);
+  });
+});
+
+describe("setUnenforcedPrimaryKey", () => {
+  let tmpDir: tmp.DirResult;
+
+  beforeEach(() => {
+    tmpDir = tmp.dirSync({ unsafeCleanup: true });
+  });
+  afterEach(() => tmpDir.removeCallback());
+
+  it("sets a single-column primary key (string or one-element array)", async () => {
+    const conn = await connect(tmpDir.name);
+    const schema = new arrow.Schema([
+      new arrow.Field("id", new arrow.Int64(), false),
+    ]);
+    const t1 = await conn.createEmptyTable("t1", schema);
+    await t1.setUnenforcedPrimaryKey("id");
+
+    const t2 = await conn.createEmptyTable("t2", schema);
+    await t2.setUnenforcedPrimaryKey(["id"]);
+  });
+
+  it("rejects a compound primary key", async () => {
+    const conn = await connect(tmpDir.name);
+    const table = await conn.createEmptyTable(
+      "t",
+      new arrow.Schema([
+        new arrow.Field("id", new arrow.Int64(), false),
+        new arrow.Field("name", new arrow.Utf8(), false),
+      ]),
+    );
+    await expect(
+      table.setUnenforcedPrimaryKey(["id", "name"]),
+    ).rejects.toThrow();
+  });
+
+  it("rejects changing the primary key once set", async () => {
+    const conn = await connect(tmpDir.name);
+    const table = await conn.createEmptyTable(
+      "t",
+      new arrow.Schema([
+        new arrow.Field("id", new arrow.Int64(), false),
+        new arrow.Field("name", new arrow.Utf8(), false),
+      ]),
+    );
+    await table.setUnenforcedPrimaryKey("id");
+    await expect(table.setUnenforcedPrimaryKey("name")).rejects.toThrow();
+    await expect(table.setUnenforcedPrimaryKey("id")).rejects.toThrow();
+  });
+});
+
+describe("setLsmWriteSpec / unsetLsmWriteSpec", () => {
+  let tmpDir: tmp.DirResult;
+
+  beforeEach(() => {
+    tmpDir = tmp.dirSync({ unsafeCleanup: true });
+  });
+  afterEach(() => tmpDir.removeCallback());
+
+  async function makeTable(conn: Connection): Promise<Table> {
+    return await conn.createEmptyTable(
+      "t",
+      new arrow.Schema([new arrow.Field("id", new arrow.Int64(), false)]),
+    );
+  }
+
+  it("installs and removes a bucket spec", async () => {
+    const conn = await connect(tmpDir.name);
+    const table = await makeTable(conn);
+
+    await table.setUnenforcedPrimaryKey("id");
+    await table.setLsmWriteSpec({
+      specType: "bucket",
+      column: "id",
+      numBuckets: 4,
+    });
+    await table.unsetLsmWriteSpec();
+    // A second unset errors — there is no spec left to remove.
+    await expect(table.unsetLsmWriteSpec()).rejects.toThrow();
+    // A fresh spec can be installed after unset.
+    await table.setLsmWriteSpec({
+      specType: "bucket",
+      column: "id",
+      numBuckets: 8,
+    });
+  });
+
+  it("installs an unsharded spec", async () => {
+    const conn = await connect(tmpDir.name);
+    const table = await makeTable(conn);
+
+    await table.setUnenforcedPrimaryKey("id");
+    await table.setLsmWriteSpec({ specType: "unsharded" });
+    await table.unsetLsmWriteSpec();
+  });
+
+  it("installs an identity spec", async () => {
+    const conn = await connect(tmpDir.name);
+    const table = await makeTable(conn);
+
+    await table.setUnenforcedPrimaryKey("id");
+    await table.setLsmWriteSpec({ specType: "identity", column: "id" });
+    await table.unsetLsmWriteSpec();
+  });
+
+  it("rejects an invalid spec", async () => {
+    const conn = await connect(tmpDir.name);
+    const table = await makeTable(conn);
+
+    await table.setUnenforcedPrimaryKey("id");
+    // num_buckets out of range.
+    await expect(
+      table.setLsmWriteSpec({
+        specType: "bucket",
+        column: "id",
+        numBuckets: 0,
+      }),
+    ).rejects.toThrow();
+    // Column mismatch.
+    await expect(
+      table.setLsmWriteSpec({
+        specType: "bucket",
+        column: "missing",
+        numBuckets: 4,
+      }),
+    ).rejects.toThrow();
   });
 });

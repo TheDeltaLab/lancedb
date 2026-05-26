@@ -1,12 +1,8 @@
 {
 	"name": "@delta-ai/lancedb-win32-x64-msvc",
 	"version": "0.1.5",
-	"os": [
-		"win32"
-	],
-	"cpu": [
-		"x64"
-	],
+	"os": ["win32"],
+	"cpu": ["x64"],
 	"main": "lancedb.win32-x64-msvc.node",
 	"files": [
 		"lancedb.win32-x64-msvc.node"
