@@ -4626,8 +4626,8 @@ mod tests {
             .unwrap()
             .expect("MemWAL index should be initialized");
         assert_eq!(details.num_shards, 4);
-        assert_eq!(details.shard_specs.len(), 1);
-        let installed = &details.shard_specs[0];
+        assert_eq!(details.sharding_specs.len(), 1);
+        let installed = &details.sharding_specs[0];
         assert_eq!(installed.fields.len(), 1);
         let f = &installed.fields[0];
         assert_eq!(f.transform.as_deref(), Some("bucket"));
@@ -4683,8 +4683,8 @@ mod tests {
             .unwrap()
             .expect("MemWAL index should be initialized");
         assert_eq!(details.num_shards, 1);
-        assert_eq!(details.shard_specs.len(), 1);
-        let f = &details.shard_specs[0].fields[0];
+        assert_eq!(details.sharding_specs.len(), 1);
+        let f = &details.sharding_specs[0].fields[0];
         assert_eq!(f.transform.as_deref(), Some("unsharded"));
         assert!(f.source_ids.is_empty());
     }
@@ -4734,9 +4734,17 @@ mod tests {
             .expect("MemWAL index should be initialized");
         // Identity sharding records an open-ended shard count.
         assert_eq!(details.num_shards, 0);
-        assert_eq!(details.shard_specs.len(), 1);
-        let f = &details.shard_specs[0].fields[0];
+        assert_eq!(details.sharding_specs.len(), 1);
+        let f = &details.sharding_specs[0].fields[0];
         assert_eq!(f.transform.as_deref(), Some("identity"));
+        // Writer config defaults round-trip into the MemWAL index.
+        assert_eq!(
+            details
+                .writer_config_defaults
+                .get("durable_write")
+                .map(String::as_str),
+            Some("false")
+        );
     }
 
     #[tokio::test]

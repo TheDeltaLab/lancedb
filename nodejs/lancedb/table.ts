@@ -105,7 +105,7 @@ export interface AddDataOptions {
    * });
    * ```
    */
-  progress: (progress: WriteProgress) => void;
+  progress?: (progress: WriteProgress) => void;
 }
 
 export interface UpdateOptions {

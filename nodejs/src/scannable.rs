@@ -249,5 +249,13 @@ fn decode_one_batch(buf: &[u8], declared: &SchemaRef) -> LanceResult<RecordBatch
         .map_err(|e| Error::Runtime {
             message: format!("failed to decode record batch: {}", e),
         })?;
+
+    if iter.next().is_some() {
+        return Err(Error::InvalidInput {
+            message: "IPC stream contained more than one record batch; expected exactly one"
+                .to_string(),
+        });
+    }
+
     Ok(batch)
 }

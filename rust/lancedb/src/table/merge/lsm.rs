@@ -8,11 +8,8 @@
 //! `merge_insert` calls. [`unset_lsm_write_spec`] removes it. The actual
 //! `merge_insert` dispatch and writer are a follow-up.
 
-use std::collections::HashMap;
-
-use lance::dataset::mem_wal::{DatasetMemWalExt, MemWalConfig, MemWalShardConfig};
+use lance::dataset::mem_wal::DatasetMemWalExt;
 use lance::index::DatasetIndexExt;
-use lance_index::mem_wal::{ShardField, ShardSpec};
 
 use crate::error::{Error, Result};
 use crate::table::{LsmWriteSpec, NativeTable};
@@ -23,8 +20,8 @@ use crate::table::{LsmWriteSpec, NativeTable};
 
 /// Install an [`LsmWriteSpec`] on the table.
 ///
-/// The sharding spec is translated into a [`ShardSpec`] stored in the MemWAL
-/// index metadata via [`MemWalConfig`].
+/// The bucket / unsharded sharding spec is constructed and validated by Lance's
+/// [`InitializeMemWalBuilder`](lance::dataset::mem_wal::InitializeMemWalBuilder).
 #[allow(clippy::redundant_pub_crate)]
 pub(crate) async fn set_lsm_write_spec(table: &NativeTable, spec: LsmWriteSpec) -> Result<()> {
     table.dataset.ensure_mutable()?;
@@ -38,97 +35,39 @@ pub(crate) async fn set_lsm_write_spec(table: &NativeTable, spec: LsmWriteSpec) 
         }
     }
 
-    let (shard_spec, maintained_indexes, writer_config_defaults, shard_config) = match spec {
+    let mut dataset = (*table.dataset.get().await?).clone();
+    let mut builder = dataset.initialize_mem_wal();
+    let (maintained_indexes, writer_config_defaults) = match spec {
         LsmWriteSpec::Bucket {
             column,
             num_buckets,
             maintained_indexes,
             writer_config_defaults,
         } => {
-            let mut parameters = HashMap::new();
-            parameters.insert("num_buckets".to_string(), num_buckets.to_string());
-            let field = ShardField {
-                field_id: column,
-                source_ids: Vec::new(),
-                transform: Some("bucket".to_string()),
-                expression: None,
-                result_type: "uint32".to_string(),
-                parameters,
-            };
-            (
-                Some(ShardSpec {
-                    spec_id: 0,
-                    fields: vec![field],
-                }),
-                maintained_indexes,
-                writer_config_defaults,
-                MemWalShardConfig {
-                    num_shards: num_buckets,
-                },
-            )
+            builder = builder.bucket_sharding(column, num_buckets);
+            (maintained_indexes, writer_config_defaults)
         }
         LsmWriteSpec::Identity {
             column,
             maintained_indexes,
             writer_config_defaults,
         } => {
-            let field = ShardField {
-                field_id: column,
-                source_ids: Vec::new(),
-                transform: Some("identity".to_string()),
-                expression: None,
-                result_type: "string".to_string(),
-                parameters: HashMap::new(),
-            };
-            (
-                Some(ShardSpec {
-                    spec_id: 0,
-                    fields: vec![field],
-                }),
-                maintained_indexes,
-                writer_config_defaults,
-                MemWalShardConfig::default(),
-            )
+            builder = builder.identity_sharding(column);
+            (maintained_indexes, writer_config_defaults)
         }
         LsmWriteSpec::Unsharded {
             maintained_indexes,
             writer_config_defaults,
         } => {
-            let field = ShardField {
-                field_id: String::new(),
-                source_ids: Vec::new(),
-                transform: Some("unsharded".to_string()),
-                expression: None,
-                result_type: String::new(),
-                parameters: HashMap::new(),
-            };
-            (
-                Some(ShardSpec {
-                    spec_id: 0,
-                    fields: vec![field],
-                }),
-                maintained_indexes,
-                writer_config_defaults,
-                MemWalShardConfig { num_shards: 1 },
-            )
+            builder = builder.unsharded();
+            (maintained_indexes, writer_config_defaults)
         }
     };
-
-    if !writer_config_defaults.is_empty() {
-        tracing::warn!(
-            "writer_config_defaults are not yet supported by this lance version and will be ignored"
-        );
+    builder = builder.maintained_indexes(maintained_indexes);
+    for (key, value) in writer_config_defaults {
+        builder = builder.add_writer_config_default(key, value);
     }
-
-    let config = MemWalConfig {
-        shard_spec,
-        maintained_indexes,
-    };
-
-    let mut dataset = (*table.dataset.get().await?).clone();
-    dataset
-        .initialize_mem_wal_with_shards(config, shard_config)
-        .await?;
+    builder.execute().await?;
     table.dataset.update(dataset);
     Ok(())
 }

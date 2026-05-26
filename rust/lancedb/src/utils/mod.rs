@@ -199,6 +199,7 @@ fn collect_vector_columns(
     path.pop();
 }
 
+#[allow(dead_code)]
 pub(crate) fn resolve_arrow_field_path(schema: &Schema, column: &str) -> Result<(String, Field)> {
     lance_core::datatypes::parse_field_path(column).map_err(|e| Error::InvalidInput {
         message: format!("Invalid field path `{}`: {}", column, e),

@@ -106,15 +106,25 @@ impl Table {
         };
 
         if let Some(tsfn) = progress_callback {
+            let warned = std::sync::atomic::AtomicBool::new(false);
             op = op.progress(move |p| {
                 // NonBlocking: dispatch onto the JS event loop without
                 // blocking the writer thread.  With napi-rs's default
                 // unbounded queue, events are not dropped — a slow JS
                 // callback will just queue them.
-                tsfn.call(
+                let status = tsfn.call(
                     WriteProgressInfo::from(p),
                     ThreadsafeFunctionCallMode::NonBlocking,
                 );
+                if status != napi::Status::Ok
+                    && !warned.swap(true, std::sync::atomic::Ordering::Relaxed)
+                {
+                    tracing::warn!(
+                        "Progress callback TSFN call failed with status {:?}; \
+                         further failures will be silently dropped",
+                        status
+                    );
+                }
             });
         }
 

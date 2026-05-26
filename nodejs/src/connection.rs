@@ -476,9 +476,8 @@ impl Connection {
         })
     }
 
-    /// Rename a table. `current_namespace_path` and `new_namespace_path` default to
-    /// the root namespace when omitted; the caller is expected to either pass both
-    /// or pass neither.
+    /// Rename a table. `current_namespace_path` defaults to the root namespace when
+    /// omitted; `new_namespace_path` defaults to `current_namespace_path` when omitted.
     #[napi(catch_unwind)]
     pub async fn rename_table(
         &self,
@@ -488,7 +487,7 @@ impl Connection {
         new_namespace_path: Option<Vec<String>>,
     ) -> napi::Result<()> {
         let cur_ns = current_namespace_path.unwrap_or_default();
-        let new_ns = new_namespace_path.unwrap_or_default();
+        let new_ns = new_namespace_path.unwrap_or_else(|| cur_ns.clone());
         self.get_inner()?
             .rename_table(&current_name, &new_name, &cur_ns, &new_ns)
             .await

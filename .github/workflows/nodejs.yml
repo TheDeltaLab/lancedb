@@ -188,5 +188,7 @@ jobs:
         pnpm build:debug --profile ci
         pnpm tsc
     - name: Test
+      env:
+        NODE_OPTIONS: "--experimental-vm-modules"
       run: |
         pnpm test
