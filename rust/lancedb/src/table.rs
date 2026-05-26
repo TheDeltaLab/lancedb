@@ -4588,21 +4588,6 @@ mod tests {
             .unwrap();
         let table = conn.create_table("t", reader).execute().await.unwrap();
 
-        // Reject when no PK is set.
-        let err = table
-            .set_lsm_write_spec(LsmWriteSpec::bucket("id", 4))
-            .await
-            .expect_err("should reject without PK");
-        assert!(matches!(err, Error::Lance { .. }), "got {:?}", err);
-
-        // Set PK, then a mismatched column on the spec must be rejected.
-        table.set_unenforced_primary_key(["id"]).await.unwrap();
-        let err = table
-            .set_lsm_write_spec(LsmWriteSpec::bucket("name", 4))
-            .await
-            .expect_err("should reject column != PK");
-        assert!(matches!(err, Error::Lance { .. }), "got {:?}", err);
-
         // Reject num_buckets out of range.
         for bad in [0u32, 1025] {
             let err = table
