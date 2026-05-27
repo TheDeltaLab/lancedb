@@ -1,6 +1,6 @@
 {
 	"name": "@delta-ai/lancedb-linux-arm64-gnu",
-	"version": "0.1.5",
+	"version": "0.1.6",
 	"os": ["linux"],
 	"cpu": ["arm64"],
 	"main": "lancedb.linux-arm64-gnu.node",
