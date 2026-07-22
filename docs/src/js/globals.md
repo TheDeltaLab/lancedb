@@ -19,6 +19,8 @@
 
 - [BooleanQuery](classes/BooleanQuery.md)
 - [BoostQuery](classes/BoostQuery.md)
+- [BranchContents](classes/BranchContents.md)
+- [Branches](classes/Branches.md)
 - [Connection](classes/Connection.md)
 - [Index](classes/Index.md)
 - [MakeArrowTableOptions](classes/MakeArrowTableOptions.md)
@@ -45,6 +47,11 @@
 - [AddDataOptions](interfaces/AddDataOptions.md)
 - [AddResult](interfaces/AddResult.md)
 - [AlterColumnsResult](interfaces/AlterColumnsResult.md)
+- [BranchColumnChange](interfaces/BranchColumnChange.md)
+- [BranchColumnSummary](interfaces/BranchColumnSummary.md)
+- [BranchDiff](interfaces/BranchDiff.md)
+- [BranchIndexSummary](interfaces/BranchIndexSummary.md)
+- [BranchRowCountSummary](interfaces/BranchRowCountSummary.md)
 - [ColumnAlteration](interfaces/ColumnAlteration.md)
 - [ColumnOrdering](interfaces/ColumnOrdering.md)
 - [CompactionStats](interfaces/CompactionStats.md)
@@ -60,9 +67,11 @@
 - [DropNamespaceOptions](interfaces/DropNamespaceOptions.md)
 - [DropNamespaceResponse](interfaces/DropNamespaceResponse.md)
 - [ExecutableQuery](interfaces/ExecutableQuery.md)
+- [FieldMetadataUpdate](interfaces/FieldMetadataUpdate.md)
 - [FragmentStatistics](interfaces/FragmentStatistics.md)
 - [FragmentSummaryStats](interfaces/FragmentSummaryStats.md)
 - [FtsOptions](interfaces/FtsOptions.md)
+- [FtsToken](interfaces/FtsToken.md)
 - [FullTextQuery](interfaces/FullTextQuery.md)
 - [FullTextSearchOptions](interfaces/FullTextSearchOptions.md)
 - [HnswPqOptions](interfaces/HnswPqOptions.md)
@@ -76,6 +85,9 @@
 - [ListNamespacesOptions](interfaces/ListNamespacesOptions.md)
 - [ListNamespacesResponse](interfaces/ListNamespacesResponse.md)
 - [LsmWriteSpec](interfaces/LsmWriteSpec.md)
+- [MergeBlocker](interfaces/MergeBlocker.md)
+- [MergeBranchResult](interfaces/MergeBranchResult.md)
+- [MergePreview](interfaces/MergePreview.md)
 - [MergeResult](interfaces/MergeResult.md)
 - [OpenTableOptions](interfaces/OpenTableOptions.md)
 - [OptimizeOptions](interfaces/OptimizeOptions.md)
@@ -93,6 +105,8 @@
 - [SplitSequentialOptions](interfaces/SplitSequentialOptions.md)
 - [TableNamesOptions](interfaces/TableNamesOptions.md)
 - [TableStatistics](interfaces/TableStatistics.md)
+- [TokenizeOptions](interfaces/TokenizeOptions.md)
+- [UpdateFieldMetadataResult](interfaces/UpdateFieldMetadataResult.md)
 - [UpdateOptions](interfaces/UpdateOptions.md)
 - [UpdateResult](interfaces/UpdateResult.md)
 - [Version](interfaces/Version.md)
@@ -101,6 +115,8 @@
 
 ## Type Aliases
 
+- [AnalyzePlanDistributedMetrics](type-aliases/AnalyzePlanDistributedMetrics.md)
+- [BaseTokenizer](type-aliases/BaseTokenizer.md)
 - [Data](type-aliases/Data.md)
 - [DataLike](type-aliases/DataLike.md)
 - [FieldLike](type-aliases/FieldLike.md)
@@ -110,6 +126,7 @@
 - [RecordBatchLike](type-aliases/RecordBatchLike.md)
 - [SchemaLike](type-aliases/SchemaLike.md)
 - [TableLike](type-aliases/TableLike.md)
+- [TokenizeTableOptions](type-aliases/TokenizeTableOptions.md)
 
 ## Functions
 
@@ -117,7 +134,9 @@
 - [connect](functions/connect.md)
 - [connectNamespace](functions/connectNamespace.md)
 - [initProfiling](functions/initProfiling.md)
+- [instrumentLanceDbMetrics](functions/instrumentLanceDbMetrics.md)
 - [makeArrowTable](functions/makeArrowTable.md)
 - [packBits](functions/packBits.md)
 - [permutationBuilder](functions/permutationBuilder.md)
+- [tokenize](functions/tokenize.md)
 - [withTraceparent](functions/withTraceparent.md)

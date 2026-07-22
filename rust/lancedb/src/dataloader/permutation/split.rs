@@ -8,7 +8,7 @@ use std::sync::{
 
 use arrow_array::{Array, BooleanArray, RecordBatch, UInt64Array};
 use arrow_schema::{DataType, Field, Schema};
-use datafusion_common::hash_utils::create_hashes;
+use datafusion_common::hash_utils::{RandomState, create_hashes};
 use futures::{StreamExt, TryStreamExt};
 use lance_arrow::SchemaExt;
 
@@ -35,9 +35,13 @@ pub enum SplitStrategy {
     /// Rows will be randomly assigned to splits
     ///
     /// A seed can be provided to make the assignment deterministic.
+    ///
+    /// A clump_size can be provided to shuffle contiguous groups of rows together,
+    /// preserving I/O locality while still randomising the split assignment.
     Random {
         seed: Option<u64>,
         sizes: SplitSizes,
+        clump_size: Option<u64>,
     },
     /// Rows will be assigned to splits based on the values in the specified columns.
     ///
@@ -230,7 +234,7 @@ impl Splitter {
             .cloned()
             .collect::<Vec<_>>();
         let mut hashes = vec![0; batch.num_rows()];
-        let random_state = ahash::RandomState::with_seeds(0, 0, 0, 0);
+        let random_state = RandomState::with_seed(0);
         create_hashes(&arrays, &random_state, &mut hashes).unwrap();
         // As an example, let's assume the weights are 1, 2.  Our total weight is 3.
         //
@@ -323,13 +327,17 @@ impl Splitter {
                 self.apply_sequential(source, num_rows, &SplitSizes::Counts(vec![num_rows]))
                     .await
             }
-            SplitStrategy::Random { seed, sizes } => {
+            SplitStrategy::Random {
+                seed,
+                sizes,
+                clump_size,
+            } => {
                 let shuffler = Shuffler::new(ShufflerConfig {
                     seed: *seed,
                     // In this case we are only shuffling row ids so we can use a large max_rows_per_file
                     max_rows_per_file: 10 * 1024 * 1024,
                     temp_dir: self.temp_dir.clone(),
-                    clump_size: None,
+                    clump_size: *clump_size,
                 });
 
                 let shuffled = shuffler.shuffle(source, num_rows).await?;
@@ -692,6 +700,7 @@ mod tests {
             SplitStrategy::Random {
                 seed: Some(42),
                 sizes: SplitSizes::Fixed(3),
+                clump_size: None,
             },
         );
 
@@ -718,6 +727,7 @@ mod tests {
             SplitStrategy::Random {
                 seed: Some(42),
                 sizes: SplitSizes::Counts(vec![5, 15, 10]),
+                clump_size: None,
             },
         );
 
@@ -744,6 +754,7 @@ mod tests {
             SplitStrategy::Random {
                 seed: Some(42),
                 sizes: SplitSizes::Percentages(vec![0.217, 0.168, 0.17]),
+                clump_size: None,
             },
         );
 
@@ -785,15 +796,15 @@ mod tests {
         // These assertions are all based on fixed seed in data generation but they match
         // up roughly to what we expect (25% discarded, 25% in split 0, 50% in split 1)
 
-        // 14 rows (28%) are discarded because discard_weight is 1
-        assert_eq!(split_batch.num_rows(), 36);
+        // 8 rows (16%) are discarded because discard_weight is 1
+        assert_eq!(split_batch.num_rows(), 42);
         assert_eq!(split_batch.num_columns(), 2);
 
         let split_ids = split_batch.column(1).as_primitive::<UInt64Type>().values();
         let num_in_split_0 = split_ids.iter().filter(|v| **v == 0).count();
         let num_in_split_1 = split_ids.iter().filter(|v| **v == 1).count();
 
-        assert_eq!(num_in_split_0, 11); // 22%
-        assert_eq!(num_in_split_1, 25); // 50%
+        assert_eq!(num_in_split_0, 12); // 24%
+        assert_eq!(num_in_split_1, 30); // 60%
     }
 }

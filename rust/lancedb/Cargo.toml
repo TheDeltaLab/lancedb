@@ -1,6 +1,6 @@
 [package]
 name = "lancedb"
-version = "0.1.6"
+version = "0.1.7"
 edition.workspace = true
 description = "LanceDB: A serverless, low-latency vector database for AI applications"
 license.workspace = true
@@ -14,6 +14,7 @@ rust-version.workspace = true
 ahash = { workspace = true }
 arrow = { workspace = true }
 arrow-array = { workspace = true }
+arrow-buffer = { workspace = true }
 arrow-data = { workspace = true }
 arrow-schema = { workspace = true }
 arrow-select = { workspace = true }
@@ -33,7 +34,6 @@ datafusion.workspace = true
 object_store = { workspace = true }
 snafu = { workspace = true }
 half = { workspace = true }
-lazy_static.workspace = true
 lance = { workspace = true }
 lance-core = { workspace = true }
 lance-datafusion.workspace = true
@@ -43,13 +43,17 @@ lance-io = { workspace = true }
 lance-index = { workspace = true, features = ["tokenizer-jieba", "tokenizer-lindera"] }
 lance-table = { workspace = true }
 lance-linalg = { workspace = true }
-lance-testing = { workspace = true }
 lance-encoding = { workspace = true }
 lance-arrow = { workspace = true }
 lance-namespace = { workspace = true }
 lance-namespace-impls = { workspace = true }
+metrics = { workspace = true, optional = true }
+metrics-util = { workspace = true, optional = true }
+# Pin the transitive GooseFS SDK until the 0.1.6 compile break is fixed upstream.
+goosefs-sdk = { version = "=0.1.5", optional = true }
 pin-project = { workspace = true }
-tokio = { version = "1.23", features = ["rt-multi-thread"] }
+tokio = { version = "1.23", features = ["rt-multi-thread", "sync"] }
+log.workspace = true
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, optional = true }
 tracing-opentelemetry = { workspace = true, optional = true }
@@ -78,7 +82,7 @@ reqwest = { version = "0.12.0", default-features = false, features = [
     "macos-system-configuration",
     "stream",
 ], optional = true }
-uuid = { version = "1.7.0", features = ["v4"] }
+uuid = { version = "1.7.0", features = ["v4", "v5"] }
 polars-arrow = { version = ">=0.37,<0.40.0", optional = true }
 polars = { version = ">=0.37,<0.40.0", optional = true }
 hf-hub = { version = "0.4.1", optional = true, default-features = false, features = [
@@ -93,8 +97,10 @@ tokenizers = { version = "0.19.1", optional = true }
 
 [dev-dependencies]
 anyhow = "1"
+lance-testing = { workspace = true }
 tempfile = "3.5.0"
 random_word = { version = "0.4.3", features = ["en"] }
+tokio = { version = "1.23", features = ["io-util", "macros", "net", "rt-multi-thread", "sync"] }
 uuid = { version = "1.7.0", features = ["v4"] }
 walkdir = "2"
 aws-sdk-dynamodb = { version = "1.55.0" }
@@ -107,6 +113,8 @@ rstest = "0.23.0"
 test-log = "0.2"
 tracing-subscriber = { workspace = true }
 serial_test = "3"
+[target.'cfg(unix)'.dev-dependencies]
+pprof = { version = "0.14", features = ["flamegraph"] }
 
 
 [features]
@@ -134,12 +142,28 @@ azure = [
     "lance-namespace-impls/dir-azure",
     "lance-namespace-impls/credential-vendor-azure",
 ]
+cos = ["lance/tencent", "lance-io/tencent"]
+goosefs = [
+    "dep:goosefs-sdk",
+    "lance/goosefs",
+    "lance-io/goosefs",
+    "lance-namespace-impls/dir-goosefs",
+]
 huggingface = [
     "lance/huggingface",
     "lance-io/huggingface",
     "lance-namespace-impls/dir-huggingface",
 ]
 dynamodb = ["lance/dynamodb", "aws"]
+# Publish LanceDB's internal metrics (currently object store request counts,
+# bytes, latency, errors, and throttles) through the `metrics` crate facade,
+# and re-export the `metrics` crate as `lancedb::metrics`. Install any
+# `metrics`-compatible recorder to collect them.
+metrics = ["dep:metrics", "lance/metrics", "lance-io/metrics"]
+# Additional adapter on top of `metrics` that installs a process-global recorder
+# and exposes a pull-based snapshot/catalog API (see `lancedb::metrics_otel`)
+# for bridging metrics into OpenTelemetry or other pull-based exporters.
+metrics-otel = ["metrics", "dep:metrics-util"]
 fp16kernels = ["lance-linalg/fp16kernels"]
 s3-test = []
 bedrock = ["dep:aws-sdk-bedrockruntime"]
@@ -166,7 +190,14 @@ name = "bedrock"
 required-features = ["bedrock"]
 
 [[example]]
+name = "bench_streaming_dataloader"
+
+[[example]]
 name = "simple"
+
+[[example]]
+name = "polars"
+required-features = ["polars"]
 
 [[example]]
 name = "full_text_search"

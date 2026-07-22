@@ -32,6 +32,11 @@
 //! - `oss` - Enable Alibaba Cloud OSS object store support.
 //! - `huggingface` - Enable HuggingFace Hub integration for loading datasets from the Hub.
 //! - `fp16kernels` - Enable FP16 kernels for faster vector search on CPU.
+//! - `metrics` - Publish LanceDB's internal metrics through the
+//!   [`metrics`](https://docs.rs/metrics) crate facade and re-export that crate.
+//!   Install any `metrics`-compatible recorder to collect them.
+//! - `metrics-otel` - Add a pull-based adapter (the `metrics_otel` module) over
+//!   the `metrics` facade for bridging metrics into OpenTelemetry or similar.
 //!
 //! ### Quick Start
 //!
@@ -161,6 +166,7 @@
 //! ```
 
 pub mod arrow;
+pub mod blob;
 pub mod connection;
 pub mod data;
 pub mod database;
@@ -171,6 +177,8 @@ pub mod expr;
 pub mod index;
 pub mod io;
 pub mod ipc;
+#[cfg(feature = "metrics-otel")]
+pub mod metrics_otel;
 #[cfg(feature = "polars")]
 mod polars_arrow_convertors;
 #[cfg(any(feature = "profiling", feature = "profiling-otlp"))]
@@ -182,14 +190,30 @@ pub mod table;
 pub mod test_utils;
 pub mod utils;
 
-use std::fmt::Display;
+use std::{fmt::Display, str::FromStr};
 
 use serde::{Deserialize, Serialize};
 
+pub use blob::{blob, is_blob};
 pub use connection::{ConnectNamespaceBuilder, Connection};
 pub use error::{Error, Result};
+use lance_index::vector::ApproxMode as LanceApproxMode;
 use lance_linalg::distance::DistanceType as LanceDistanceType;
-pub use table::Table;
+/// Re-export of the [`metrics`](https://docs.rs/metrics) crate facade. Enable
+/// the `metrics` feature to publish LanceDB's internal metrics; install any
+/// `metrics`-compatible recorder to collect them. See also [`metrics_otel`] for
+/// a built-in pull-based adapter.
+#[cfg(feature = "metrics")]
+pub use metrics;
+pub use table::{FtsToken, Table};
+
+/// Tokenize a full-text search query using an explicit FTS tokenizer configuration.
+///
+/// This does not require a table or FTS index. The tokenizer options are the
+/// same [`index::scalar::FtsIndexBuilder`] values used when creating an FTS index.
+pub fn tokenize(query: &str, params: &index::scalar::FtsIndexBuilder) -> Result<Vec<FtsToken>> {
+    table::tokenize(query, params)
+}
 
 #[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[non_exhaustive]
@@ -256,6 +280,79 @@ impl Display for DistanceType {
     }
 }
 
+/// Controls the speed / accuracy tradeoff for approximate vector search.
+///
+/// This currently only affects RQ-quantized vector indexes, such as IVF_RQ.
+/// Other index types ignore this setting.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[non_exhaustive]
+#[serde(rename_all = "lowercase")]
+pub enum ApproxMode {
+    /// Prefer lower query latency, which can reduce recall.
+    Fast,
+    /// Use the default balance between query latency and recall.
+    #[default]
+    Normal,
+    /// Prefer higher recall, which can increase query latency.
+    Accurate,
+}
+
+impl From<ApproxMode> for LanceApproxMode {
+    fn from(value: ApproxMode) -> Self {
+        match value {
+            ApproxMode::Fast => Self::Fast,
+            ApproxMode::Normal => Self::Normal,
+            ApproxMode::Accurate => Self::Accurate,
+        }
+    }
+}
+
+impl From<LanceApproxMode> for ApproxMode {
+    fn from(value: LanceApproxMode) -> Self {
+        match value {
+            LanceApproxMode::Fast => Self::Fast,
+            LanceApproxMode::Normal => Self::Normal,
+            LanceApproxMode::Accurate => Self::Accurate,
+        }
+    }
+}
+
+impl TryFrom<&str> for ApproxMode {
+    type Error = Error;
+
+    fn try_from(value: &str) -> std::prelude::v1::Result<Self, Self::Error> {
+        Self::from_str(value)
+    }
+}
+
+impl FromStr for ApproxMode {
+    type Err = Error;
+
+    fn from_str(value: &str) -> std::prelude::v1::Result<Self, Self::Err> {
+        match value.to_ascii_lowercase().as_str() {
+            "fast" => Ok(Self::Fast),
+            "normal" => Ok(Self::Normal),
+            "accurate" => Ok(Self::Accurate),
+            _ => Err(Error::InvalidInput {
+                message: format!(
+                    "approx_mode must be one of 'fast', 'normal', or 'accurate', got '{}'",
+                    value
+                ),
+            }),
+        }
+    }
+}
+
+impl Display for ApproxMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Fast => write!(f, "fast"),
+            Self::Normal => write!(f, "normal"),
+            Self::Accurate => write!(f, "accurate"),
+        }
+    }
+}
+
 /// Connect to a database
 pub use connection::connect;
 /// Connect to a namespace-backed database
@@ -264,3 +361,9 @@ pub use connection::connect_namespace;
 /// Re-export Lance Session and ObjectStoreRegistry for custom session creation
 pub use lance::session::Session;
 pub use lance_io::object_store::ObjectStoreRegistry;
+
+/// Re-export DataFusion so consumers can build the `Expr` values that public
+/// query/merge APIs (e.g. [`query::QueryBase::only_if_expr`]) accept without
+/// declaring their own (potentially mismatched) direct `datafusion` dependency.
+/// See <https://github.com/lancedb/lancedb/issues/3575>.
+pub use datafusion;

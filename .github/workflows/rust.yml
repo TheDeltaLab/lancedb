@@ -9,7 +9,6 @@ on:
       - deny.toml
       - rust/**
       - nodejs/Cargo.toml
-      - python/Cargo.toml
       - .github/workflows/rust.yml
 
 permissions:
@@ -37,7 +36,7 @@ jobs:
       CC: clang-18
       CXX: clang++-18
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
           lfs: true
@@ -60,7 +59,7 @@ jobs:
     timeout-minutes: 10
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
           command: check advisories bans licenses sources
@@ -73,7 +72,7 @@ jobs:
       CC: clang
       CXX: clang++
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       # Building without a lock file often requires the latest Rust version since downstream
       # dependencies may have updated their minimum Rust version.
       - uses: actions-rust-lang/setup-rust-toolchain@v1
@@ -93,7 +92,7 @@ jobs:
           cargo build --profile ci --benches --all-features --tests
 
   linux:
-    timeout-minutes: 30
+    timeout-minutes: 60
     # To build all features, we need more disk space than is available
     # on the free OSS github runner. This is mostly due to the the
     # sentence-transformers feature.
@@ -108,7 +107,7 @@ jobs:
       CXX: clang++-18
       GH_TOKEN: ${{ secrets.SOPHON_READ_TOKEN }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
           lfs: true
@@ -120,12 +119,26 @@ jobs:
       - uses: rui314/setup-mold@v1
       - name: Make Swap
         run: |
-          sudo swapoff /swapfile || true
-          sudo rm -f /swapfile
-          sudo fallocate -l 16G /swapfile
-          sudo chmod 600 /swapfile
-          sudo mkswap /swapfile
-          sudo swapon /swapfile
+          swapfile=/swapfile
+          min_swap_bytes=$((15 * 1024 * 1024 * 1024))
+          active_swap_bytes="$(sudo swapon --show=NAME,SIZE --bytes --noheadings | awk '$1 == "/swapfile" { print $2 }')"
+          if [ -n "$active_swap_bytes" ]; then
+            if [ "$active_swap_bytes" -ge "$min_swap_bytes" ]; then
+              echo "/swapfile is already active with enough space; skipping swap creation"
+              exit 0
+            fi
+            echo "/swapfile is already active but smaller than 16G; using /mnt/lancedb-swapfile"
+            swapfile=/mnt/lancedb-swapfile
+          fi
+          if sudo swapon --show=NAME --noheadings | grep -Fxq "$swapfile"; then
+            echo "$swapfile is already active; skipping swap creation"
+            exit 0
+          fi
+          sudo rm -f "$swapfile"
+          sudo fallocate -l 16G "$swapfile"
+          sudo chmod 600 "$swapfile"
+          sudo mkswap "$swapfile"
+          sudo swapon "$swapfile"
       - name: Build
         run: cargo build --profile ci --all-features --tests --locked --examples
       - name: Run feature tests
@@ -141,7 +154,7 @@ jobs:
         shell: bash
         working-directory: rust
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
           lfs: true
@@ -171,7 +184,7 @@ jobs:
       CC: clang-18
       CXX: clang++-18
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           submodules: true
       - name: Install dependencies

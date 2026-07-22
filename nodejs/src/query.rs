@@ -19,6 +19,7 @@ use lancedb::index::scalar::{
     BooleanQuery, BoostQuery, FtsQuery, FullTextSearchQuery, MatchQuery, MultiMatchQuery, Occur,
     Operator, PhraseQuery,
 };
+use lancedb::query::AnalyzePlanDistributedMetrics;
 use lancedb::query::ExecutableQuery;
 use lancedb::query::Query as LanceDbQuery;
 use lancedb::query::QueryBase;
@@ -46,6 +47,28 @@ impl From<ColumnOrdering> for LanceDbColumnOrdering {
             (false, false) => Self::desc_nulls_last(value.column_name),
         }
     }
+}
+
+fn analyze_plan_options(
+    distributed_metrics: Option<String>,
+) -> napi::Result<QueryExecutionOptions> {
+    let analyze_plan_distributed_metrics =
+        match distributed_metrics.as_deref().unwrap_or("aggregate") {
+            "aggregate" => AnalyzePlanDistributedMetrics::Aggregate,
+            "per_worker" => AnalyzePlanDistributedMetrics::PerWorker,
+            "full" => AnalyzePlanDistributedMetrics::Full,
+            mode => {
+                return Err(napi::Error::from_reason(format!(
+                    "Invalid distributedMetrics value '{}'. Expected one of: \
+                 'aggregate', 'per_worker', 'full'",
+                    mode
+                )));
+            }
+        };
+
+    let mut options = QueryExecutionOptions::default();
+    options.analyze_plan_distributed_metrics = analyze_plan_distributed_metrics;
+    Ok(options)
 }
 
 fn bytes_to_arrow_array(data: Uint8Array, dtype: String) -> napi::Result<Arc<dyn Array>> {
@@ -206,13 +229,17 @@ impl Query {
     }
 
     #[napi(catch_unwind)]
-    pub async fn analyze_plan(&self) -> napi::Result<String> {
-        self.inner.analyze_plan().await.map_err(|e| {
-            napi::Error::from_reason(format!(
-                "Failed to execute analyze plan: {}",
-                convert_error(&e)
-            ))
-        })
+    pub async fn analyze_plan(&self, distributed_metrics: Option<String>) -> napi::Result<String> {
+        let options = analyze_plan_options(distributed_metrics)?;
+        self.inner
+            .analyze_plan_with_options(options)
+            .await
+            .map_err(|e| {
+                napi::Error::from_reason(format!(
+                    "Failed to execute analyze plan: {}",
+                    convert_error(&e)
+                ))
+            })
     }
 }
 
@@ -425,13 +452,17 @@ impl VectorQuery {
     }
 
     #[napi(catch_unwind)]
-    pub async fn analyze_plan(&self) -> napi::Result<String> {
-        self.inner.analyze_plan().await.map_err(|e| {
-            napi::Error::from_reason(format!(
-                "Failed to execute analyze plan: {}",
-                convert_error(&e)
-            ))
-        })
+    pub async fn analyze_plan(&self, distributed_metrics: Option<String>) -> napi::Result<String> {
+        let options = analyze_plan_options(distributed_metrics)?;
+        self.inner
+            .analyze_plan_with_options(options)
+            .await
+            .map_err(|e| {
+                napi::Error::from_reason(format!(
+                    "Failed to execute analyze plan: {}",
+                    convert_error(&e)
+                ))
+            })
     }
 }
 
@@ -511,13 +542,17 @@ impl TakeQuery {
     }
 
     #[napi(catch_unwind)]
-    pub async fn analyze_plan(&self) -> napi::Result<String> {
-        self.inner.analyze_plan().await.map_err(|e| {
-            napi::Error::from_reason(format!(
-                "Failed to execute analyze plan: {}",
-                convert_error(&e)
-            ))
-        })
+    pub async fn analyze_plan(&self, distributed_metrics: Option<String>) -> napi::Result<String> {
+        let options = analyze_plan_options(distributed_metrics)?;
+        self.inner
+            .analyze_plan_with_options(options)
+            .await
+            .map_err(|e| {
+                napi::Error::from_reason(format!(
+                    "Failed to execute analyze plan: {}",
+                    convert_error(&e)
+                ))
+            })
     }
 }
 

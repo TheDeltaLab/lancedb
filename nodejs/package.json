@@ -11,7 +11,7 @@
     "ann"
   ],
   "private": false,
-  "version": "0.1.6",
+  "version": "0.1.7",
   "main": "dist/index.js",
   "exports": {
     ".": "./dist/index.js",
@@ -43,8 +43,9 @@
     "@aws-sdk/client-s3": "3.1003.0",
     "@biomejs/biome": "^1.7.3",
     "@jest/globals": "^29.7.0",
-    "@napi-rs/cli": "^3.5.1",
+    "@napi-rs/cli": "3.7.0",
     "@opentelemetry/api": "^1.9.1",
+    "@opentelemetry/sdk-metrics": "^1.30.0",
     "@opentelemetry/sdk-trace-base": "^2.6.1",
     "@opentelemetry/sdk-trace-node": "^2.6.1",
     "@types/axios": "^0.14.0",
@@ -97,6 +98,7 @@
     "version": "napi version"
   },
   "dependencies": {
+    "@opentelemetry/api": "^1.9.0",
     "reflect-metadata": "^0.2.2"
   },
   "optionalDependencies": {

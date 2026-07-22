@@ -25,13 +25,16 @@ import {
   AddColumnsSql,
   AddResult,
   AlterColumnsResult,
+  BranchContents,
   DeleteResult,
   DropColumnsResult,
   IndexConfig,
   IndexStatistics,
+  Branches as NativeBranches,
   OptimizeStats,
   TableStatistics,
   Tags,
+  UpdateFieldMetadataResult,
   UpdateResult,
   Table as _NativeTable,
 } from "./native";
@@ -164,13 +167,36 @@ export interface Version {
   metadata: Record<string, string>;
 }
 
+/** Token produced by the tokenizer configured on a full-text search index. */
+export interface FtsToken {
+  /** Token text after tokenizer filters have been applied. */
+  text: string;
+  /** Token position used by full-text query matching. */
+  position: number;
+}
+
+export type TokenizeTableOptions =
+  | {
+      /** FTS-indexed column whose tokenizer should be used. */
+      column: string;
+      indexName?: never;
+    }
+  | {
+      /** Name of the FTS index whose tokenizer should be used. */
+      indexName: string;
+      column?: never;
+    };
+
 /**
  * Specification selecting Lance's MemWAL LSM-style write path for
  * `mergeInsert`.
  *
  * `specType` is `"bucket"`, `"identity"`, or `"unsharded"`. For `"bucket"`,
  * `column` and `numBuckets` are required; for `"identity"`, `column` is
- * required.
+ * required and must be a deterministic function of the unenforced primary
+ * key (every row with a given primary key must always produce the same
+ * `column` value, or upserts of that key can land in different shards and a
+ * stale version can win).
  */
 export interface LsmWriteSpec {
   /** One of `"bucket"`, `"identity"`, or `"unsharded"`. */
@@ -514,6 +540,18 @@ export abstract class Table {
   abstract alterColumns(
     columnAlterations: ColumnAlteration[],
   ): Promise<AlterColumnsResult>;
+
+  /**
+   * Update per-field (column) metadata.
+   * @param {FieldMetadataUpdate[]} updates One or more per-field updates. Each
+   * update's metadata is merged into the field's existing metadata by default;
+   * a value of `null` deletes that key, and `replace: true` swaps the whole map.
+   * @returns {Promise<UpdateFieldMetadataResult>} resolves to the new table version.
+   */
+  abstract updateFieldMetadata(
+    updates: FieldMetadataUpdate[],
+  ): Promise<UpdateFieldMetadataResult>;
+
   /**
    * Drop one or more columns from the dataset
    *
@@ -576,6 +614,27 @@ export abstract class Table {
    * @returns {Promise<void>}
    */
   abstract unsetLsmWriteSpec(): Promise<void>;
+  /**
+   * Read the {@link LsmWriteSpec} currently installed on this table.
+   *
+   * Resolves to `undefined` when the MemWAL LSM write path is not enabled (no
+   * spec has been set, or it was removed with {@link Table#unsetLsmWriteSpec}).
+   * The returned spec — including its `maintainedIndexes` and
+   * `writerConfigDefaults` — mirrors what was passed to
+   * {@link Table#setLsmWriteSpec}.
+   * @returns {Promise<LsmWriteSpec | undefined>}
+   */
+  abstract getLsmWriteSpec(): Promise<LsmWriteSpec | undefined>;
+  /**
+   * Drain and close any cached MemWAL shard writers held for this table.
+   *
+   * When an {@link LsmWriteSpec} is installed, `mergeInsert` opens MemWAL
+   * shard writers and caches them for reuse across calls. This closes them,
+   * flushing pending data; writers reopen lazily on the next `mergeInsert`.
+   * It is a no-op when no writers are cached.
+   * @returns {Promise<void>}
+   */
+  abstract closeLsmWriters(): Promise<void>;
   /** Retrieve the version of the table */
 
   abstract version(): Promise<number>;
@@ -673,6 +732,22 @@ export abstract class Table {
   abstract tags(): Promise<Tags>;
 
   /**
+   * Get the branch manager for this table.
+   *
+   * Branches are isolated, writable lines of history forked from another
+   * branch (or version). Writes on a branch do not affect `main`.
+   */
+  abstract branches(): Promise<Branches>;
+
+  /**
+   * The branch this table handle is scoped to, or `null` for the main branch.
+   *
+   * A handle returned by {@link Branches.create} or {@link Branches.checkout}
+   * reports the branch it targets; a handle opened normally reports `null`.
+   */
+  abstract currentBranch(): string | null;
+
+  /**
    * Restore the table to the currently checked out version
    *
    * This operation will fail if checkout has not been called previously
@@ -706,6 +781,19 @@ export abstract class Table {
   abstract optimize(options?: Partial<OptimizeOptions>): Promise<OptimizeStats>;
   /** List all indices that have been created with {@link Table.createIndex} */
   abstract listIndices(): Promise<IndexConfig[]>;
+  /**
+   * Tokenize a full-text search query using the tokenizer configured on an FTS index.
+   *
+   * Specify exactly one of `column` or `indexName`.
+   *
+   * Model-backed tokenizers such as `jieba/*` and `lindera/*` are rebuilt in
+   * the client process from index metadata. For remote tables, this means the
+   * same tokenizer model files must also exist locally.
+   */
+  abstract tokenize(
+    query: string,
+    options: TokenizeTableOptions,
+  ): Promise<FtsToken[]>;
   /** Return the table as an arrow table */
   abstract toArrow(): Promise<ArrowTable>;
 
@@ -1070,6 +1158,12 @@ export class LocalTable extends Table {
     return await this.inner.alterColumns(processedAlterations);
   }
 
+  async updateFieldMetadata(
+    updates: FieldMetadataUpdate[],
+  ): Promise<UpdateFieldMetadataResult> {
+    return await this.inner.updateFieldMetadata(updates);
+  }
+
   async dropColumns(columnNames: string[]): Promise<DropColumnsResult> {
     return await this.inner.dropColumns(columnNames);
   }
@@ -1085,6 +1179,19 @@ export class LocalTable extends Table {
 
   async unsetLsmWriteSpec(): Promise<void> {
     return await this.inner.unsetLsmWriteSpec();
+  }
+
+  async getLsmWriteSpec(): Promise<LsmWriteSpec | undefined> {
+    // The native binding types `specType` as a plain `string`; narrow it back
+    // to the public union. The Rust `From` impl only ever emits one of the
+    // three valid values, so the cast is safe.
+    return ((await this.inner.getLsmWriteSpec()) ?? undefined) as
+      | LsmWriteSpec
+      | undefined;
+  }
+
+  async closeLsmWriters(): Promise<void> {
+    return await this.inner.closeLsmWriters();
   }
 
   async version(): Promise<number> {
@@ -1146,6 +1253,14 @@ export class LocalTable extends Table {
     return await this.inner.tags();
   }
 
+  async branches(): Promise<Branches> {
+    return new Branches(await this.inner.branches());
+  }
+
+  currentBranch(): string | null {
+    return this.inner.currentBranch() ?? null;
+  }
+
   async optimize(options?: Partial<OptimizeOptions>): Promise<OptimizeStats> {
     let cleanupOlderThanMs;
     if (
@@ -1165,6 +1280,17 @@ export class LocalTable extends Table {
 
   async listIndices(): Promise<IndexConfig[]> {
     return await this.inner.listIndices();
+  }
+
+  async tokenize(
+    query: string,
+    options: TokenizeTableOptions,
+  ): Promise<FtsToken[]> {
+    return await this.inner.tokenize(
+      query,
+      options?.column,
+      options?.indexName,
+    );
   }
 
   async toArrow(): Promise<ArrowTable> {
@@ -1261,4 +1387,168 @@ export interface ColumnAlteration {
   dataType?: string | DataType;
   /** Set the new nullability. Note that a nullable column cannot be made non-nullable. */
   nullable?: boolean;
+}
+
+/** A per-field metadata update, addressed by dot-path. */
+export interface FieldMetadataUpdate {
+  /**
+   * Dot-separated path to the field. For a top-level column this is just its
+   * name; for a nested field it's the path, e.g. "a.b.c".
+   */
+  path: string;
+  /**
+   * Metadata key/value pairs. Merged into the field's existing metadata by
+   * default; a value of `null` deletes that key.
+   */
+  metadata: Record<string, string | null>;
+  /** If true, replace the field's entire metadata map instead of merging. */
+  replace?: boolean;
+}
+
+/** Summary of a column in a branch diff. */
+export interface BranchColumnSummary {
+  name: string;
+  dataType: string;
+  nullable: boolean;
+}
+
+/** A column whose definition differs between main and the branch. */
+export interface BranchColumnChange {
+  name: string;
+  main: BranchColumnSummary;
+  branch: BranchColumnSummary;
+}
+
+/** Summary of an index in a branch diff. */
+export interface BranchIndexSummary {
+  indexName: string;
+  columns: string[];
+  indexType?: string;
+  status: string;
+}
+
+/** Row-level comparison between main and the branch. */
+export interface BranchRowCountSummary {
+  unchanged: number;
+  newOnBase: number;
+  newOnBranch: number;
+  staleRecompute: number;
+  inputsChanged: number;
+  deltaAvailable: boolean;
+}
+
+/** A reason why a branch cannot currently be merged. */
+export interface MergeBlocker {
+  code: string;
+  message: string;
+}
+
+/** Read-only comparison of a branch against main. */
+export interface BranchDiff {
+  fromBranch: string;
+  parentVersion: number;
+  mainVersion: number;
+  branchVersion: number;
+  baseMoved: boolean;
+  rowCountMain: number;
+  rowCountBranch: number;
+  rowSummary: BranchRowCountSummary;
+  addedColumns: BranchColumnSummary[];
+  removedColumns: BranchColumnSummary[];
+  changedColumns: BranchColumnChange[];
+  addedIndexes: BranchIndexSummary[];
+  removedIndexes: BranchIndexSummary[];
+  mergeable: boolean;
+  mergeBlockers: MergeBlocker[];
+}
+
+/** Changes that would be, or were, promoted by a branch merge. */
+export interface MergePreview {
+  promotedColumns: string[];
+}
+
+/** Result of previewing or attempting a branch merge. */
+export interface MergeBranchResult {
+  status: "ready" | "rejected" | "notImplemented" | "merged" | "unknown";
+  diff: BranchDiff;
+  preview: MergePreview;
+  mainVersionAfter?: number;
+}
+
+/**
+ * Branch manager for a {@link Table}.
+ *
+ * Unlike tags, `create` and `checkout` return a new {@link Table} handle scoped
+ * to the branch; writes on it do not affect `main`.
+ */
+export class Branches {
+  #inner: NativeBranches;
+
+  /**
+   * Construct a Branches manager. Internal use only.
+   * @hidden
+   */
+  constructor(inner: NativeBranches) {
+    this.#inner = inner;
+  }
+
+  /** List all branches, mapping name to branch metadata. */
+  async list(): Promise<Record<string, BranchContents>> {
+    return await this.#inner.list();
+  }
+
+  /**
+   * Create a branch and return a handle scoped to it.
+   *
+   * @param name Name of the new branch.
+   * @param fromRef Source branch to fork from. Defaults to `main`.
+   * @param fromVersion A specific version on `fromRef`. Defaults to latest.
+   */
+  async create(
+    name: string,
+    fromRef?: string,
+    fromVersion?: number,
+  ): Promise<Table> {
+    return new LocalTable(await this.#inner.create(name, fromRef, fromVersion));
+  }
+
+  /**
+   * Check out an existing branch and return a handle scoped to it.
+   *
+   * With `version` set, the returned handle is pinned to that version of the
+   * branch (a read-only, detached view); otherwise it tracks the branch's
+   * latest and stays writable.
+   */
+  async checkout(name: string, version?: number): Promise<Table> {
+    return new LocalTable(await this.#inner.checkout(name, version));
+  }
+
+  /** Delete a branch. */
+  async delete(name: string): Promise<void> {
+    return await this.#inner.delete(name);
+  }
+
+  /** Compare a branch against main without modifying either branch. */
+  async diff(fromBranch: string): Promise<BranchDiff> {
+    return (await this.#inner.diff(fromBranch)) as unknown as BranchDiff;
+  }
+
+  /**
+   * Merge a branch into main.
+   *
+   * Set `dryRun` to `true` to preview the merge. A rejected merge resolves
+   * with `status: "rejected"` instead of throwing.
+   *
+   * @param fromBranch Branch to merge from.
+   * @param dryRun When true, only preview the merge. Defaults to false.
+   */
+  async merge(
+    fromBranch: string,
+    dryRun: boolean = false,
+  ): Promise<MergeBranchResult> {
+    return (await this.#inner.merge(
+      fromBranch,
+      dryRun,
+    )) as unknown as MergeBranchResult;
+  }
 }

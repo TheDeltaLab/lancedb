@@ -1,6 +1,6 @@
 {
 	"name": "@delta-ai/lancedb-darwin-arm64",
-	"version": "0.1.6",
+	"version": "0.1.7",
 	"os": ["darwin"],
 	"cpu": ["arm64"],
 	"main": "lancedb.darwin-arm64.node",

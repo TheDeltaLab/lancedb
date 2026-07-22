@@ -3,10 +3,13 @@
 
 use std::collections::HashMap;
 
+use chrono::{DateTime, Utc};
+
 use lancedb::ipc::{ipc_file_to_batches, ipc_file_to_schema};
 use lancedb::table::{
-    AddDataMode, ColumnAlteration as LanceColumnAlteration, DateTime, Duration, NewColumnTransform,
-    OptimizeAction, OptimizeOptions, Table as LanceDbTable, Utc,
+    AddDataMode, ColumnAlteration as LanceColumnAlteration, Duration,
+    FieldMetadataUpdate as LanceFieldMetadataUpdate, FtsToken as LanceDbFtsToken,
+    NewColumnTransform, OptimizeAction, OptimizeOptions, Ref, Table as LanceDbTable,
 };
 use napi::bindgen_prelude::*;
 use napi::threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode};
@@ -413,6 +416,23 @@ impl Table {
     }
 
     #[napi(catch_unwind)]
+    pub async fn update_field_metadata(
+        &self,
+        updates: Vec<FieldMetadataUpdate>,
+    ) -> napi::Result<UpdateFieldMetadataResult> {
+        let updates = updates
+            .into_iter()
+            .map(LanceFieldMetadataUpdate::from)
+            .collect::<Vec<_>>();
+        let res = self
+            .inner_ref()?
+            .update_field_metadata(&updates)
+            .await
+            .default_error()?;
+        Ok(res.into())
+    }
+
+    #[napi(catch_unwind)]
     pub async fn drop_columns(&self, columns: Vec<String>) -> napi::Result<DropColumnsResult> {
         let col_refs = columns.iter().map(String::as_str).collect::<Vec<_>>();
         let res = self
@@ -446,6 +466,21 @@ impl Table {
             .unset_lsm_write_spec()
             .await
             .default_error()
+    }
+
+    #[napi(catch_unwind)]
+    pub async fn get_lsm_write_spec(&self) -> napi::Result<Option<LsmWriteSpec>> {
+        let spec = self
+            .inner_ref()?
+            .get_lsm_write_spec()
+            .await
+            .default_error()?;
+        Ok(spec.map(LsmWriteSpec::from))
+    }
+
+    #[napi(catch_unwind)]
+    pub async fn close_lsm_writers(&self) -> napi::Result<()> {
+        self.inner_ref()?.close_lsm_writers().await.default_error()
     }
 
     #[napi(catch_unwind)]
@@ -561,6 +596,19 @@ impl Table {
     }
 
     #[napi(catch_unwind)]
+    pub async fn branches(&self) -> napi::Result<Branches> {
+        Ok(Branches {
+            inner: self.inner_ref()?.clone(),
+        })
+    }
+
+    /// The branch this handle is scoped to, or `null` for the main branch.
+    #[napi]
+    pub fn current_branch(&self) -> napi::Result<Option<String>> {
+        Ok(self.inner_ref()?.current_branch())
+    }
+
+    #[napi(catch_unwind)]
     pub async fn optimize(
         &self,
         older_than_ms: Option<i64>,
@@ -640,6 +688,27 @@ impl Table {
     }
 
     #[napi(catch_unwind)]
+    pub async fn tokenize(
+        &self,
+        query: String,
+        column: Option<String>,
+        index_name: Option<String>,
+    ) -> napi::Result<Vec<FtsToken>> {
+        let table = self.inner_ref()?;
+        let tokens = match (column.as_deref(), index_name.as_deref()) {
+            (Some(_), Some(_)) | (None, None) => {
+                return Err(napi::Error::from_reason(
+                    "Specify exactly one of 'column' or 'indexName'",
+                ));
+            }
+            (Some(column), None) => table.tokenize_with_column(&query, column).await,
+            (None, Some(index_name)) => table.tokenize(&query, index_name).await,
+        }
+        .default_error()?;
+        Ok(tokens.into_iter().map(FtsToken::from).collect())
+    }
+
+    #[napi(catch_unwind)]
     pub async fn index_stats(&self, index_name: String) -> napi::Result<Option<IndexStatistics>> {
         let tbl = self.inner_ref()?;
         let stats = tbl.index_stats(&index_name).await.default_error()?;
@@ -685,6 +754,43 @@ pub struct IndexConfig {
     /// Currently this is always an array of size 1. In the future there may
     /// be more columns to represent composite indices.
     pub columns: Vec<String>,
+    /// The UUID of the first segment of the index.
+    ///
+    /// `undefined` for remote tables, which do not yet surface this.
+    pub index_uuid: Option<String>,
+    /// The protobuf type URL, a precise type identifier for the index.
+    ///
+    /// `undefined` for remote tables.
+    pub type_url: Option<String>,
+    /// When the index was created.
+    ///
+    /// `undefined` for remote tables or indices created before timestamps were tracked.
+    pub created_at: Option<DateTime<Utc>>,
+    /// The number of rows indexed, across all segments.
+    ///
+    /// `undefined` for remote tables.
+    pub num_indexed_rows: Option<i64>,
+    /// The number of rows not yet covered by this index.
+    ///
+    /// `undefined` for remote tables.
+    pub num_unindexed_rows: Option<i64>,
+    /// The total size in bytes of all index files across all segments.
+    ///
+    /// `undefined` for remote tables or indices without size tracking.
+    pub size_bytes: Option<i64>,
+    /// The number of segments that make up the index.
+    ///
+    /// `undefined` for remote tables.
+    pub num_segments: Option<i32>,
+    /// The on-disk index format version.
+    ///
+    /// `undefined` for remote tables.
+    pub index_version: Option<i32>,
+    /// Index-type-specific details parsed as a JavaScript object.
+    ///
+    /// Falls back to a raw string if JSON parsing fails. `undefined` for
+    /// remote tables or when details are unavailable.
+    pub index_details: Option<serde_json::Value>,
 }
 
 impl From<lancedb::index::IndexConfig> for IndexConfig {
@@ -694,6 +800,35 @@ impl From<lancedb::index::IndexConfig> for IndexConfig {
             index_type,
             columns: value.columns,
             name: value.name,
+            index_uuid: value.index_uuid,
+            type_url: value.type_url,
+            created_at: value.created_at,
+            num_indexed_rows: value.num_indexed_rows.map(|n| n as i64),
+            num_unindexed_rows: value.num_unindexed_rows.map(|n| n as i64),
+            size_bytes: value.size_bytes.map(|n| n as i64),
+            num_segments: value.num_segments.map(|n| n as i32),
+            index_version: value.index_version,
+            index_details: value
+                .index_details
+                .and_then(|s| serde_json::from_str(&s).ok()),
+        }
+    }
+}
+
+#[napi(object)]
+/// A token produced by the tokenizer configured on a full-text search index.
+pub struct FtsToken {
+    /// The token text after the index tokenizer has applied its filters.
+    pub text: String,
+    /// The token position used by full-text query matching.
+    pub position: u32,
+}
+
+impl From<LanceDbFtsToken> for FtsToken {
+    fn from(token: LanceDbFtsToken) -> Self {
+        Self {
+            text: token.text,
+            position: token.position,
         }
     }
 }
@@ -752,6 +887,47 @@ impl TryFrom<LsmWriteSpec> for lancedb::table::LsmWriteSpec {
         Ok(spec
             .with_maintained_indexes(maintained)
             .with_writer_config_defaults(writer_config_defaults))
+    }
+}
+
+impl From<lancedb::table::LsmWriteSpec> for LsmWriteSpec {
+    fn from(spec: lancedb::table::LsmWriteSpec) -> Self {
+        use lancedb::table::LsmWriteSpec as Native;
+        match spec {
+            Native::Bucket {
+                column,
+                num_buckets,
+                maintained_indexes,
+                writer_config_defaults,
+            } => Self {
+                spec_type: "bucket".to_string(),
+                column: Some(column),
+                num_buckets: Some(num_buckets),
+                maintained_indexes: Some(maintained_indexes),
+                writer_config_defaults: Some(writer_config_defaults),
+            },
+            Native::Identity {
+                column,
+                maintained_indexes,
+                writer_config_defaults,
+            } => Self {
+                spec_type: "identity".to_string(),
+                column: Some(column),
+                num_buckets: None,
+                maintained_indexes: Some(maintained_indexes),
+                writer_config_defaults: Some(writer_config_defaults),
+            },
+            Native::Unsharded {
+                maintained_indexes,
+                writer_config_defaults,
+            } => Self {
+                spec_type: "unsharded".to_string(),
+                column: None,
+                num_buckets: None,
+                maintained_indexes: Some(maintained_indexes),
+                writer_config_defaults: Some(writer_config_defaults),
+            },
+        }
     }
 }
 
@@ -855,6 +1031,29 @@ pub struct ColumnAlteration {
     pub nullable: Option<bool>,
 }
 
+/// A per-field metadata update, addressed by dot-path. Merges into the field's
+/// existing metadata by default; a `null` value deletes a key, and `replace`
+/// swaps the field's entire metadata map.
+#[napi(object)]
+pub struct FieldMetadataUpdate {
+    /// Dot-separated path to the field (e.g. "embedding" or "a.b.c").
+    pub path: String,
+    /// Metadata keys to set; a `null` value deletes that key.
+    pub metadata: HashMap<String, Option<String>>,
+    /// If true, replace the field's entire metadata map instead of merging.
+    pub replace: Option<bool>,
+}
+
+impl From<FieldMetadataUpdate> for LanceFieldMetadataUpdate {
+    fn from(js: FieldMetadataUpdate) -> Self {
+        Self {
+            path: js.path,
+            metadata: js.metadata,
+            replace: js.replace.unwrap_or(false),
+        }
+    }
+}
+
 impl TryFrom<ColumnAlteration> for LanceColumnAlteration {
     type Error = String;
     fn try_from(js: ColumnAlteration) -> std::result::Result<Self, Self::Error> {
@@ -905,9 +1104,6 @@ pub struct IndexStatistics {
     pub distance_type: Option<String>,
     /// The number of parts this index is split into.
     pub num_indices: Option<u32>,
-    /// The KMeans loss value of the index,
-    /// it is only present for vector indices.
-    pub loss: Option<f64>,
 }
 impl From<lancedb::index::IndexStatistics> for IndexStatistics {
     fn from(value: lancedb::index::IndexStatistics) -> Self {
@@ -917,7 +1113,6 @@ impl From<lancedb::index::IndexStatistics> for IndexStatistics {
             index_type: value.index_type.to_string(),
             distance_type: value.distance_type.map(|d| d.to_string()),
             num_indices: value.num_indices,
-            loss: value.loss,
         }
     }
 }
@@ -1053,6 +1248,7 @@ pub struct MergeResult {
     pub num_updated_rows: i64,
     pub num_deleted_rows: i64,
     pub num_attempts: i64,
+    pub num_rows: i64,
 }
 
 impl From<lancedb::table::MergeResult> for MergeResult {
@@ -1063,6 +1259,7 @@ impl From<lancedb::table::MergeResult> for MergeResult {
             num_updated_rows: value.num_updated_rows as i64,
             num_deleted_rows: value.num_deleted_rows as i64,
             num_attempts: value.num_attempts as i64,
+            num_rows: value.num_rows as i64,
         }
     }
 }
@@ -1094,6 +1291,19 @@ impl From<lancedb::table::AlterColumnsResult> for AlterColumnsResult {
 }
 
 #[napi(object)]
+pub struct UpdateFieldMetadataResult {
+    pub version: i64,
+}
+
+impl From<lancedb::table::UpdateFieldMetadataResult> for UpdateFieldMetadataResult {
+    fn from(value: lancedb::table::UpdateFieldMetadataResult) -> Self {
+        Self {
+            version: value.version as i64,
+        }
+    }
+}
+
+#[napi(object)]
 pub struct DropColumnsResult {
     pub version: i64,
 }
@@ -1109,6 +1319,13 @@ impl From<lancedb::table::DropColumnsResult> for DropColumnsResult {
 #[napi]
 pub struct TagContents {
     pub version: i64,
+    pub manifest_size: i64,
+}
+
+#[napi]
+pub struct BranchContents {
+    pub parent_branch: Option<String>,
+    pub parent_version: i64,
     pub manifest_size: i64,
 }
 
@@ -1178,5 +1395,101 @@ impl Tags {
             .update(tag.as_str(), version as u64)
             .await
             .default_error()
+    }
+}
+
+#[napi]
+pub struct Branches {
+    inner: LanceDbTable,
+}
+
+#[napi]
+impl Branches {
+    #[napi]
+    pub async fn list(&self) -> napi::Result<HashMap<String, BranchContents>> {
+        let branches = self.inner.list_branches().await.default_error()?;
+        let result = branches
+            .into_iter()
+            .map(|(k, v)| {
+                (
+                    k,
+                    BranchContents {
+                        parent_branch: v.parent_branch,
+                        parent_version: v.parent_version as i64,
+                        manifest_size: v.manifest_size as i64,
+                    },
+                )
+            })
+            .collect();
+        Ok(result)
+    }
+
+    #[napi]
+    pub async fn create(
+        &self,
+        name: String,
+        from_ref: Option<String>,
+        from_version: Option<i64>,
+    ) -> napi::Result<Table> {
+        let from_ref = from_ref.filter(|b| b != "main");
+        let from_version = from_version
+            .map(|v| {
+                u64::try_from(v).map_err(|_| {
+                    napi::Error::from_reason("from_version must be a non-negative integer")
+                })
+            })
+            .transpose()?;
+        let from = Ref::Version(from_ref, from_version);
+        let table = self
+            .inner
+            .create_branch(&name, from)
+            .await
+            .default_error()?;
+        Ok(Table::new(table))
+    }
+
+    #[napi]
+    pub async fn checkout(&self, name: String, version: Option<i64>) -> napi::Result<Table> {
+        let version = version
+            .map(|v| {
+                u64::try_from(v)
+                    .map_err(|_| napi::Error::from_reason("version must be a non-negative integer"))
+            })
+            .transpose()?;
+        let table = self
+            .inner
+            .checkout_branch(&name, version)
+            .await
+            .default_error()?;
+        Ok(Table::new(table))
+    }
+
+    #[napi]
+    pub async fn delete(&self, name: String) -> napi::Result<()> {
+        self.inner.delete_branch(&name).await.default_error()
+    }
+
+    #[napi(ts_return_type = "Promise<Record<string, unknown>>")]
+    pub async fn diff(&self, from_branch: String) -> napi::Result<serde_json::Value> {
+        let diff = self.inner.diff_branch(&from_branch).await.default_error()?;
+        serde_json::to_value(diff).map_err(|err| {
+            napi::Error::from_reason(format!("failed to serialize branch diff: {err}"))
+        })
+    }
+
+    #[napi(ts_return_type = "Promise<Record<string, unknown>>")]
+    pub async fn merge(
+        &self,
+        from_branch: String,
+        dry_run: Option<bool>,
+    ) -> napi::Result<serde_json::Value> {
+        let result = self
+            .inner
+            .merge_branch(&from_branch, dry_run.unwrap_or(false))
+            .await
+            .default_error()?;
+        serde_json::to_value(result).map_err(|err| {
+            napi::Error::from_reason(format!("failed to serialize branch merge result: {err}"))
+        })
     }
 }

@@ -486,6 +486,16 @@ export interface IvfFlatOptions {
   sampleRate?: number;
 }
 
+export type BaseTokenizer =
+  | "simple"
+  | "whitespace"
+  | "raw"
+  | "ngram"
+  | "icu"
+  | "icu/split"
+  | `jieba/${string}`
+  | `lindera/${string}`;
+
 /**
  * Options to create a full text search index
  */
@@ -509,8 +519,12 @@ export interface FtsOptions {
    * "whitespace" - Whitespace tokenizer. This tokenizer splits the text into tokens using whitespace as a delimiter.
    *
    * "raw" - Raw tokenizer. This tokenizer does not split the text into tokens and indexes the entire text as a single token.
+   *
+   * "icu" - ICU dictionary-based word segmentation.
+   *
+   * "icu/split" - ICU segmentation with simple-style delimiter splitting.
    */
-  baseTokenizer?: "simple" | "whitespace" | "raw" | "ngram";
+  baseTokenizer?: BaseTokenizer;
 
   /**
    * language for stemming and stop words
@@ -700,6 +714,17 @@ export class Index {
    */
   static labelList() {
     return new Index(LanceDbIndex.labelList());
+  }
+
+  /**
+   * Create an FM-Index.
+   *
+   * An FM-Index is a scalar index on string or binary columns that accelerates
+   * substring search, i.e. `contains(col, 'needle')`. Unlike the tokenized
+   * full-text-search index, it matches arbitrary substrings of the raw bytes.
+   */
+  static fm() {
+    return new Index(LanceDbIndex.fm());
   }
 
   /**

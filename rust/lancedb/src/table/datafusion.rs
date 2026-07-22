@@ -3,6 +3,7 @@
 
 //! This module contains adapters to allow LanceDB tables to be used as DataFusion table providers.
 
+mod blob_coerce;
 pub mod cast;
 pub mod insert;
 pub mod reject_nan;
@@ -88,10 +89,6 @@ impl ExecutionPlan for MetadataEraserExec {
         "MetadataEraserExec"
     }
 
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
-    }
-
     fn properties(&self) -> &Arc<PlanProperties> {
         &self.properties
     }
@@ -137,7 +134,7 @@ impl ExecutionPlan for MetadataEraserExec {
         )
     }
 
-    fn partition_statistics(&self, partition: Option<usize>) -> DataFusionResult<Statistics> {
+    fn partition_statistics(&self, partition: Option<usize>) -> DataFusionResult<Arc<Statistics>> {
         self.input.partition_statistics(partition)
     }
 
@@ -187,10 +184,6 @@ impl BaseTableAdapter {
 
 #[async_trait]
 impl TableProvider for BaseTableAdapter {
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
-    }
-
     fn schema(&self) -> Arc<ArrowSchema> {
         self.schema.clone()
     }

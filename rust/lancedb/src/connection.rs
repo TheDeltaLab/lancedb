@@ -9,6 +9,7 @@ use std::sync::Arc;
 use arrow_array::RecordBatch;
 use arrow_schema::SchemaRef;
 use lance::dataset::ReadParams;
+use lance::dataset::refs::MAIN_BRANCH;
 use lance_namespace::models::{
     CreateNamespaceRequest, CreateNamespaceResponse, DescribeNamespaceRequest,
     DescribeNamespaceResponse, DropNamespaceRequest, DropNamespaceResponse, ListNamespacesRequest,
@@ -112,6 +113,8 @@ pub struct OpenTableBuilder {
     parent: Arc<dyn Database>,
     request: OpenTableRequest,
     embedding_registry: Arc<dyn EmbeddingRegistry>,
+    branch: Option<String>,
+    version: Option<u64>,
 }
 
 impl OpenTableBuilder {
@@ -132,6 +135,8 @@ impl OpenTableBuilder {
                 managed_versioning: None,
             },
             embedding_registry,
+            branch: None,
+            version: None,
         }
     }
 
@@ -252,14 +257,48 @@ impl OpenTableBuilder {
         self
     }
 
+    /// Open the table scoped to the given branch instead of the default branch.
+    ///
+    /// Reads and writes on the returned table operate in the branch's context.
+    pub fn branch(mut self, branch: impl Into<String>) -> Self {
+        self.branch = Some(branch.into());
+        self
+    }
+
+    /// Open the table pinned to a specific version, producing a read-only "view".
+    ///
+    /// Composes with [`Self::branch`]: when a branch is also set, this opens that
+    /// branch at the given version; otherwise it opens `main` at that version.
+    /// The returned table is a detached head, so operations that modify the table
+    /// will fail until [`Table::checkout_latest`] is called.
+    ///
+    /// ```
+    /// # use lancedb::Connection;
+    /// # async fn f(conn: &Connection) -> Result<(), Box<dyn std::error::Error>> {
+    /// let table = conn.open_table("t").branch("exp").version(3).execute().await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn version(mut self, version: u64) -> Self {
+        self.version = Some(version);
+        self
+    }
+
     /// Open the table
     pub async fn execute(self) -> Result<Table> {
         let table = self.parent.open_table(self.request).await?;
-        Ok(Table::new_with_embedding_registry(
-            table,
-            self.parent,
-            self.embedding_registry,
-        ))
+        let table = Table::new_with_embedding_registry(table, self.parent, self.embedding_registry);
+        // "main" is the default branch, so treat it as no branch.
+        let branch = self.branch.filter(|b| b.as_str() != MAIN_BRANCH);
+        match branch {
+            Some(branch) => table.checkout_branch(&branch, self.version).await,
+            None => {
+                if let Some(version) = self.version {
+                    table.checkout(version).await?;
+                }
+                Ok(table)
+            }
+        }
     }
 }
 
@@ -537,6 +576,9 @@ impl Connection {
     /// Returns (impl_type, properties) where:
     /// - impl_type: "dir" for DirectoryNamespace, "rest" for RestNamespace
     /// - properties: configuration properties for the namespace
+    ///
+    /// Remote connections using dynamic headers cannot be exported because the
+    /// namespace client config only carries static headers.
     pub async fn namespace_client_config(
         &self,
     ) -> Result<(String, std::collections::HashMap<String, String>)> {
@@ -718,8 +760,7 @@ impl ConnectBuilder {
         self
     }
 
-    /// The interval at which to check for updates from other processes. This
-    /// only affects LanceDB OSS.
+    /// The interval at which to check for updates from other processes.
     ///
     /// If left unset, consistency is not checked. For maximum read
     /// performance, this is the default. For strong consistency, set this to
@@ -730,6 +771,12 @@ impl ConnectBuilder {
     ///
     /// This only affects read operations. Write operations are always
     /// consistent.
+    ///
+    /// # Cost
+    ///
+    /// Stronger consistency is not free. The smaller the interval, the more
+    /// often each read pays the cost of checking for updates against object
+    /// storage, raising per-read latency and cost.
     pub fn read_consistency_interval(
         mut self,
         read_consistency_interval: std::time::Duration,
