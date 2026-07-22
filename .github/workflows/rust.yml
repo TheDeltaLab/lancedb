@@ -9,7 +9,6 @@ on:
       - deny.toml
       - rust/**
       - nodejs/Cargo.toml
-      - python/Cargo.toml
       - .github/workflows/rust.yml
 
 permissions:
