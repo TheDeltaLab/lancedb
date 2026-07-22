@@ -28,6 +28,7 @@ export type {
   DropNamespaceResponse,
   ListNamespacesResponse,
 };
+import { getTraceparent } from "./query";
 import { sanitizeTable } from "./sanitize";
 import { LocalTable, Table } from "./table";
 
@@ -173,8 +174,6 @@ export interface RenameTableOptions {
 
 /**
  * A LanceDB Connection that allows you to open tables and create new ones.
- *
- * Connection could be local against filesystem or remote against a server.
  *
  * A Connection is intended to be a long lived object and may hold open
  * resources such as HTTP connection pools.  This is generally fine and
@@ -482,6 +481,7 @@ export class LocalConnection extends Connection {
       namespacePath ?? [],
       tableNamesOptions?.startAfter,
       tableNamesOptions?.limit,
+      await getTraceparent(),
     );
   }
 
@@ -495,6 +495,7 @@ export class LocalConnection extends Connection {
       namespacePath ?? [],
       cleanseStorageOptions(options?.storageOptions),
       options?.indexCacheSize,
+      await getTraceparent(),
     );
 
     let table: Table = new LocalTable(innerTable);
@@ -530,6 +531,7 @@ export class LocalConnection extends Connection {
       options?.sourceVersion ?? null,
       options?.sourceTag ?? null,
       options?.isShallow ?? true,
+      await getTraceparent(),
     );
 
     return new LocalTable(innerTable);
@@ -612,6 +614,7 @@ export class LocalConnection extends Connection {
       mode,
       namespacePath ?? [],
       storageOptions,
+      await getTraceparent(),
     );
 
     return new LocalTable(innerTable);
@@ -659,16 +662,24 @@ export class LocalConnection extends Connection {
       mode,
       namespacePath ?? [],
       storageOptions,
+      await getTraceparent(),
     );
     return new LocalTable(innerTable);
   }
 
   async dropTable(name: string, namespacePath?: string[]): Promise<void> {
-    return this.inner.dropTable(name, namespacePath ?? []);
+    return this.inner.dropTable(
+      name,
+      namespacePath ?? [],
+      await getTraceparent(),
+    );
   }
 
   async dropAllTables(namespacePath?: string[]): Promise<void> {
-    return this.inner.dropAllTables(namespacePath ?? []);
+    return this.inner.dropAllTables(
+      namespacePath ?? [],
+      await getTraceparent(),
+    );
   }
 
   describeNamespace(

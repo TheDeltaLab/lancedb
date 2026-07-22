@@ -1,8 +1,8 @@
-[**@lancedb/lancedb**](../README.md) • **Docs**
+[**@delta-ai/lancedb**](../README.md) • **Docs**
 
 ***
 
-[@lancedb/lancedb](../globals.md) / AddColumnsSql
+[@delta-ai/lancedb](../globals.md) / AddColumnsSql
 
 # Interface: AddColumnsSql
 

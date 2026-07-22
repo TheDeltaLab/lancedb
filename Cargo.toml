@@ -1,5 +1,5 @@
 [workspace]
-members = ["rust/lancedb", "nodejs", "python"]
+members = ["rust/lancedb", "nodejs"]
 resolver = "2"
 
 [workspace.package]
@@ -10,23 +10,23 @@ repository = "https://github.com/lancedb/lancedb"
 description = "Serverless, low-latency vector database for AI applications"
 keywords = ["lancedb", "lance", "database", "vector", "search"]
 categories = ["database-implementations"]
-rust-version = "1.91.0"
+rust-version = "1.91.1"
 
 [workspace.dependencies]
-lance = { "version" = "=9.1.0-beta.8", default-features = false, "tag" = "v9.1.0-beta.8", "git" = "https://github.com/lance-format/lance.git" }
-lance-core = { "version" = "=9.1.0-beta.8", "tag" = "v9.1.0-beta.8", "git" = "https://github.com/lance-format/lance.git" }
-lance-datagen = { "version" = "=9.1.0-beta.8", "tag" = "v9.1.0-beta.8", "git" = "https://github.com/lance-format/lance.git" }
-lance-file = { "version" = "=9.1.0-beta.8", "tag" = "v9.1.0-beta.8", "git" = "https://github.com/lance-format/lance.git" }
-lance-io = { "version" = "=9.1.0-beta.8", default-features = false, "tag" = "v9.1.0-beta.8", "git" = "https://github.com/lance-format/lance.git" }
-lance-index = { "version" = "=9.1.0-beta.8", "tag" = "v9.1.0-beta.8", "git" = "https://github.com/lance-format/lance.git" }
-lance-linalg = { "version" = "=9.1.0-beta.8", "tag" = "v9.1.0-beta.8", "git" = "https://github.com/lance-format/lance.git" }
-lance-namespace = { "version" = "=9.1.0-beta.8", "tag" = "v9.1.0-beta.8", "git" = "https://github.com/lance-format/lance.git" }
-lance-namespace-impls = { "version" = "=9.1.0-beta.8", default-features = false, "tag" = "v9.1.0-beta.8", "git" = "https://github.com/lance-format/lance.git" }
-lance-table = { "version" = "=9.1.0-beta.8", "tag" = "v9.1.0-beta.8", "git" = "https://github.com/lance-format/lance.git" }
-lance-testing = { "version" = "=9.1.0-beta.8", "tag" = "v9.1.0-beta.8", "git" = "https://github.com/lance-format/lance.git" }
-lance-datafusion = { "version" = "=9.1.0-beta.8", "tag" = "v9.1.0-beta.8", "git" = "https://github.com/lance-format/lance.git" }
-lance-encoding = { "version" = "=9.1.0-beta.8", "tag" = "v9.1.0-beta.8", "git" = "https://github.com/lance-format/lance.git" }
-lance-arrow = { "version" = "=9.1.0-beta.8", "tag" = "v9.1.0-beta.8", "git" = "https://github.com/lance-format/lance.git" }
+lance = { version = ">=9.1.0-beta", default-features = false, "branch" = "main", "git" = "https://github.com/TheDeltaLab/lance.git" }
+lance-core = { version = ">=9.1.0-beta", "branch" = "main", "git" = "https://github.com/TheDeltaLab/lance.git" }
+lance-datagen = { version = ">=9.1.0-beta", "branch" = "main", "git" = "https://github.com/TheDeltaLab/lance.git" }
+lance-file = { version = ">=9.1.0-beta", "branch" = "main", "git" = "https://github.com/TheDeltaLab/lance.git" }
+lance-io = { version = ">=9.1.0-beta", default-features = false, "branch" = "main", "git" = "https://github.com/TheDeltaLab/lance.git" }
+lance-index = { version = ">=9.1.0-beta", "branch" = "main", "git" = "https://github.com/TheDeltaLab/lance.git" }
+lance-linalg = { version = ">=9.1.0-beta", "branch" = "main", "git" = "https://github.com/TheDeltaLab/lance.git" }
+lance-namespace = { version = ">=9.1.0-beta", "branch" = "main", "git" = "https://github.com/TheDeltaLab/lance.git" }
+lance-namespace-impls = { version = ">=9.1.0-beta", default-features = false, "branch" = "main", "git" = "https://github.com/TheDeltaLab/lance.git" }
+lance-table = { version = ">=9.1.0-beta", "branch" = "main", "git" = "https://github.com/TheDeltaLab/lance.git" }
+lance-testing = { version = ">=9.1.0-beta", "branch" = "main", "git" = "https://github.com/TheDeltaLab/lance.git" }
+lance-datafusion = { version = ">=9.1.0-beta", "branch" = "main", "git" = "https://github.com/TheDeltaLab/lance.git" }
+lance-encoding = { version = ">=9.1.0-beta", "branch" = "main", "git" = "https://github.com/TheDeltaLab/lance.git" }
+lance-arrow = { version = ">=9.1.0-beta", "branch" = "main", "git" = "https://github.com/TheDeltaLab/lance.git" }
 ahash = "0.8"
 # Note that this one does not include pyarrow
 arrow = { version = "58.0.0", optional = false }
@@ -49,6 +49,13 @@ datafusion-physical-plan = "54.0.0"
 datafusion-physical-expr = "54.0.0"
 datafusion-sql = "54.0.0"
 env_logger = "0.11"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "json", "env-filter", "registry"] }
+tracing-opentelemetry = "0.29"
+opentelemetry = "0.28"
+opentelemetry_sdk = { version = "0.28", features = ["rt-tokio"] }
+opentelemetry-otlp = { version = "0.28", features = ["grpc-tonic", "http-proto", "logs", "metrics", "trace"] }
+opentelemetry-appender-tracing = "0.28"
 half = { "version" = "2.7.1", default-features = false, features = [
     "num-traits",
 ] }
@@ -66,6 +73,10 @@ num-traits = "0.2"
 regex = "1.10"
 semver = "1.0.25"
 chrono = "0.4"
+
+[workspace.metadata.upstream]
+repository = "https://github.com/lancedb/lancedb"
+version = "0.32.0-beta.2"
 
 [profile.ci]
 debug = "line-tables-only"

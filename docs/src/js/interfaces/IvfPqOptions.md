@@ -1,8 +1,8 @@
-[**@lancedb/lancedb**](../README.md) • **Docs**
+[**@delta-ai/lancedb**](../README.md) • **Docs**
 
 ***
 
-[@lancedb/lancedb](../globals.md) / IvfPqOptions
+[@delta-ai/lancedb](../globals.md) / IvfPqOptions
 
 # Interface: IvfPqOptions
 

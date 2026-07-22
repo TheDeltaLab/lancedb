@@ -1,17 +1,21 @@
 {
-	"name": "@lancedb/lancedb-linux-arm64-musl",
-	"version": "0.32.0-beta.2",
+	"name": "@delta-ai/lancedb-linux-arm64-musl",
+	"version": "0.1.7",
 	"os": ["linux"],
 	"cpu": ["arm64"],
 	"main": "lancedb.linux-arm64-musl.node",
-	"files": ["lancedb.linux-arm64-musl.node"],
+	"files": [
+		"lancedb.linux-arm64-musl.node"
+	],
 	"license": "Apache-2.0",
 	"engines": {
 		"node": ">= 18"
 	},
-	"libc": ["musl"],
+	"libc": [
+		"musl"
+	],
 	"repository": {
 		"type": "git",
-		"url": "https://github.com/lancedb/lancedb"
+		"url": "https://github.com/TheDeltaLab/lancedb"
 	}
 }

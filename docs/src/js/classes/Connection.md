@@ -1,14 +1,12 @@
-[**@lancedb/lancedb**](../README.md) • **Docs**
+[**@delta-ai/lancedb**](../README.md) • **Docs**
 
 ***
 
-[@lancedb/lancedb](../globals.md) / Connection
+[@delta-ai/lancedb](../globals.md) / Connection
 
 # Class: `abstract` Connection
 
 A LanceDB Connection that allows you to open tables and create new ones.
-
-Connection could be local against filesystem or remote against a server.
 
 A Connection is intended to be a long lived object and may hold open
 resources such as HTTP connection pools.  This is generally fine and

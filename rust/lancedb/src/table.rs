@@ -75,14 +75,12 @@ pub mod schema_evolution;
 pub mod update;
 pub mod write_progress;
 use crate::index::waiter::wait_for_index;
-#[cfg(feature = "remote")]
-pub(crate) use add_data::PreprocessingOutput;
 pub use add_data::{AddDataBuilder, AddDataMode, AddResult, NaNVectorBehavior};
 pub use branch_merge::{
     BranchDiff, ColumnChange, ColumnSummary, IndexSummary, MergeBlocker, MergeBlockerCode,
     MergeBranchResult, MergeBranchStatus, MergePreview, RowCountSummary,
 };
-pub use chrono::Duration;
+pub use chrono::{DateTime, Duration, Utc};
 pub use delete::DeleteResult;
 use futures::future::join_all;
 pub use lance::dataset::refs::{BranchContents, Ref, TagContents, Tags as LanceTags};
@@ -508,7 +506,8 @@ pub fn tokenize(query: &str, params: &InvertedIndexParams) -> Result<Vec<FtsToke
 }
 
 /// A trait for anything "table-like".  This is used for both native tables (which target
-/// Lance datasets) and remote tables (which target LanceDB cloud)
+/// A trait for anything "table-like".  This is used for native tables which target
+/// Lance datasets.
 ///
 /// This trait is still EXPERIMENTAL and subject to change in the future
 #[async_trait]
@@ -567,11 +566,12 @@ pub trait BaseTable: std::fmt::Display + std::fmt::Debug + Send + Sync {
     async fn drop_index(&self, name: &str) -> Result<()>;
     /// Prewarm an index in the table.
     async fn prewarm_index(&self, name: &str) -> Result<()>;
-    /// Prewarm data for the table.
-    ///
-    /// Currently only supported on remote tables.
-    /// If `columns` is `None`, all columns are prewarmed.
-    async fn prewarm_data(&self, columns: Option<Vec<String>>) -> Result<()>;
+    /// Prewarm data columns into cache.
+    async fn prewarm_data(&self, _columns: Option<Vec<String>>) -> Result<()> {
+        Err(Error::NotSupported {
+            message: "prewarm_data is currently only supported on remote tables".into(),
+        })
+    }
     /// Get statistics about the index.
     async fn index_stats(&self, index_name: &str) -> Result<Option<IndexStatistics>>;
     /// Merge insert new records into the table.
@@ -727,6 +727,50 @@ pub trait BaseTable: std::fmt::Display + std::fmt::Debug + Send + Sync {
     }
     /// The branch this handle is scoped to, or `None` for `main`.
     fn current_branch(&self) -> Option<String>;
+    /// Get the information of a specific version.
+    async fn get_version_info(&self, version: u64) -> Result<Version> {
+        let versions = self.list_versions().await?;
+        versions
+            .into_iter()
+            .find(|v| v.version == version)
+            .ok_or_else(|| Error::InvalidInput {
+                message: format!("Version {} not found", version),
+            })
+    }
+    /// Find the most recent version whose timestamp is at or before the given time.
+    ///
+    /// Uses binary search with [`Self::get_version_info`] to minimise the number of
+    /// version reads. Assumes version numbers are contiguous (1, 2, ..., N).
+    async fn get_version_by_time(&self, timestamp: DateTime<Utc>) -> Result<Version> {
+        let latest = self.version().await?;
+        let mut lo = 1u64;
+        let mut hi = latest;
+        let mut result: Option<Version> = None;
+
+        while lo <= hi {
+            let mid = lo + (hi - lo) / 2;
+            match self.get_version_info(mid).await {
+                Ok(v) => {
+                    if v.timestamp <= timestamp {
+                        result = Some(v);
+                        lo = mid + 1;
+                    } else {
+                        hi = mid - 1;
+                    }
+                }
+                Err(Error::InvalidInput { .. }) => {
+                    // Version not found (gap after cleanup), search upper half
+                    // since pruned versions are typically at the low end.
+                    lo = mid + 1;
+                }
+                Err(e) => return Err(e),
+            }
+        }
+
+        result.ok_or_else(|| Error::InvalidInput {
+            message: format!("No version exists at or before {}", timestamp),
+        })
+    }
     /// Get the table definition.
     async fn table_definition(&self) -> Result<TableDefinition>;
     /// Get the table URI (storage location)
@@ -788,132 +832,6 @@ pub struct Table {
     inner: Arc<dyn BaseTable>,
     database: Option<Arc<dyn Database>>,
     embedding_registry: Arc<dyn EmbeddingRegistry>,
-}
-
-#[cfg(all(test, feature = "remote"))]
-mod test_utils {
-    use super::*;
-
-    impl Table {
-        pub fn new_with_handler<T>(
-            name: impl Into<String>,
-            handler: impl Fn(reqwest::Request) -> http::Response<T> + Clone + Send + Sync + 'static,
-        ) -> Self
-        where
-            T: Into<reqwest::Body>,
-        {
-            let inner = Arc::new(crate::remote::table::RemoteTable::new_mock(
-                name.into(),
-                handler.clone(),
-                None,
-            ));
-            let database = Arc::new(crate::remote::db::RemoteDatabase::new_mock(handler));
-            Self {
-                inner,
-                database: Some(database),
-                // Registry is unused.
-                embedding_registry: Arc::new(MemoryRegistry::new()),
-            }
-        }
-
-        pub fn new_with_handler_and_interval<T>(
-            name: impl Into<String>,
-            handler: impl Fn(reqwest::Request) -> http::Response<T> + Clone + Send + Sync + 'static,
-            read_consistency_interval: Option<std::time::Duration>,
-        ) -> Self
-        where
-            T: Into<reqwest::Body>,
-        {
-            let inner = Arc::new(
-                crate::remote::table::RemoteTable::new_mock_with_consistency_interval(
-                    name.into(),
-                    handler.clone(),
-                    read_consistency_interval,
-                ),
-            );
-            let database = Arc::new(crate::remote::db::RemoteDatabase::new_mock(handler));
-            Self {
-                inner,
-                database: Some(database),
-                // Registry is unused.
-                embedding_registry: Arc::new(MemoryRegistry::new()),
-            }
-        }
-
-        pub fn new_with_handler_version<T>(
-            name: impl Into<String>,
-            version: semver::Version,
-            handler: impl Fn(reqwest::Request) -> http::Response<T> + Clone + Send + Sync + 'static,
-        ) -> Self
-        where
-            T: Into<reqwest::Body>,
-        {
-            let inner = Arc::new(crate::remote::table::RemoteTable::new_mock(
-                name.into(),
-                handler.clone(),
-                Some(version),
-            ));
-            let database = Arc::new(crate::remote::db::RemoteDatabase::new_mock(handler));
-            Self {
-                inner,
-                database: Some(database),
-                // Registry is unused.
-                embedding_registry: Arc::new(MemoryRegistry::new()),
-            }
-        }
-
-        pub fn new_with_handler_and_config<T>(
-            name: impl Into<String>,
-            handler: impl Fn(reqwest::Request) -> http::Response<T> + Clone + Send + Sync + 'static,
-            config: crate::remote::ClientConfig,
-        ) -> Self
-        where
-            T: Into<reqwest::Body>,
-        {
-            let inner = Arc::new(crate::remote::table::RemoteTable::new_mock_with_config(
-                name.into(),
-                handler.clone(),
-                config.clone(),
-            ));
-            let database = Arc::new(crate::remote::db::RemoteDatabase::new_mock_with_config(
-                handler, config,
-            ));
-            Self {
-                inner,
-                database: Some(database),
-                // Registry is unused.
-                embedding_registry: Arc::new(MemoryRegistry::new()),
-            }
-        }
-
-        pub fn new_with_handler_version_and_config<T>(
-            name: impl Into<String>,
-            version: semver::Version,
-            handler: impl Fn(reqwest::Request) -> http::Response<T> + Clone + Send + Sync + 'static,
-            config: crate::remote::ClientConfig,
-        ) -> Self
-        where
-            T: Into<reqwest::Body>,
-        {
-            let inner = Arc::new(
-                crate::remote::table::RemoteTable::new_mock_with_version_and_config(
-                    name.into(),
-                    handler.clone(),
-                    Some(version),
-                    config.clone(),
-                ),
-            );
-            let database = Arc::new(crate::remote::db::RemoteDatabase::new_mock_with_config(
-                handler, config,
-            ));
-            Self {
-                inner,
-                database: Some(database),
-                // Registry is unused.
-                embedding_registry: Arc::new(MemoryRegistry::new()),
-            }
-        }
-    }
 }
 
 impl std::fmt::Display for Table {
@@ -1005,6 +923,7 @@ impl Table {
     /// # Arguments
     ///
     /// * `filter` if present, only count rows matching the filter
+    #[tracing::instrument(name = "lancedb.table.count_rows", skip_all, fields(table = self.name()))]
     pub async fn count_rows(&self, filter: Option<String>) -> Result<usize> {
         self.inner.count_rows(filter.map(Filter::Sql)).await
     }
@@ -1085,6 +1004,7 @@ impl Table {
     ///
     /// * `data` data to be added to the Table
     /// * `options` options to control how data is added
+    #[tracing::instrument(name = "lancedb.table.add", skip_all, fields(table = self.name()))]
     pub fn add<T: Scannable + 'static>(&self, data: T) -> AddDataBuilder {
         AddDataBuilder::new(
             self.inner.clone(),
@@ -1107,6 +1027,7 @@ impl Table {
     /// you are updating many rows (with different ids) then you will get
     /// better performance with a single [`merge_insert`] call instead of
     /// repeatedly calilng this method.
+    #[tracing::instrument(name = "lancedb.table.update", skip_all, fields(table = self.name()))]
     pub fn update(&self) -> UpdateBuilder {
         UpdateBuilder::new(self.inner.clone())
     }
@@ -1163,6 +1084,7 @@ impl Table {
     /// tbl.delete(&expr).await.unwrap();
     /// # });
     /// ```
+    #[tracing::instrument(name = "lancedb.table.delete", skip_all, fields(table = self.name()))]
     pub async fn delete(&self, predicate: impl Into<Predicate<'_>>) -> Result<DeleteResult> {
         self.inner.delete(predicate.into()).await
     }
@@ -1228,6 +1150,7 @@ impl Table {
     ///     .unwrap();
     /// # });
     /// ```
+    #[tracing::instrument(name = "lancedb.table.create_index", skip_all, fields(table = self.name()))]
     pub fn create_index(&self, columns: &[impl AsRef<str>], index: Index) -> IndexBuilder {
         IndexBuilder::new(
             self.inner.clone(),
@@ -1240,7 +1163,7 @@ impl Table {
     }
 
     /// See [Table::create_index]
-    /// For remote tables, this allows an optional wait_timeout to poll until asynchronous indexing is complete
+    /// Allows an optional wait_timeout to poll until indexing is complete.
     pub fn create_index_with_timeout(
         &self,
         columns: &[impl AsRef<str>],
@@ -1336,6 +1259,7 @@ impl Table {
     /// merge_insert.execute(Box::new(new_data)).await.unwrap();
     /// # });
     /// ```
+    #[tracing::instrument(name = "lancedb.table.merge_insert", skip_all, fields(table = self.name()))]
     pub fn merge_insert(&self, on: &[&str]) -> MergeInsertBuilder {
         MergeInsertBuilder::new(
             self.inner.clone(),
@@ -1507,6 +1431,7 @@ impl Table {
     /// optimize should be run frequently.  A good rule of thumb is to run optimize if
     /// you have added or modified 100,000 or more records or run more than 20 data
     /// modification operations.
+    #[tracing::instrument(name = "lancedb.table.optimize", skip_all, fields(table = self.name()))]
     pub async fn optimize(&self, action: OptimizeAction) -> Result<OptimizeStats> {
         self.inner.optimize(action).await
     }
@@ -1703,6 +1628,46 @@ impl Table {
         self.inner.list_versions().await
     }
 
+    /// Get the information of a specific version
+    ///
+    /// Returns the [`Version`] details for the given version number, including
+    /// timestamp and metadata (row count, file sizes, etc.).
+    ///
+    /// ```
+    /// use lancedb::Table;
+    ///
+    /// # async fn example(table: &Table) -> Result<(), Box<dyn std::error::Error>> {
+    /// let current_version = table.version().await?;
+    /// let info = table.get_version_info(current_version).await?;
+    /// println!("Version {} created at {:?}", info.version, info.timestamp);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn get_version_info(&self, version: u64) -> Result<Version> {
+        self.inner.get_version_info(version).await
+    }
+
+    /// Find the most recent version whose timestamp is at or before the given time.
+    ///
+    /// Uses binary search over version numbers so that only O(log N) version
+    /// reads are required, making it efficient even with many versions stored
+    /// on remote object storage.
+    ///
+    /// ```
+    /// use lancedb::table::{DateTime, Utc};
+    /// use lancedb::Table;
+    ///
+    /// # async fn example(table: &Table) -> Result<(), Box<dyn std::error::Error>> {
+    /// let cutoff = Utc::now();
+    /// let version = table.get_version_by_time(cutoff).await?;
+    /// println!("Version {} at {:?}", version.version, version.timestamp);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn get_version_by_time(&self, timestamp: DateTime<Utc>) -> Result<Version> {
+        self.inner.get_version_by_time(timestamp).await
+    }
+
     /// List all indices that have been created with [`Self::create_index`]
     pub async fn list_indices(&self) -> Result<Vec<IndexConfig>> {
         self.inner.list_indices().await
@@ -1816,7 +1781,6 @@ impl Table {
     /// Get the table URI (storage location)
     ///
     /// Returns the full storage location of the table (e.g., S3/GCS path).
-    /// For remote tables, this fetches the location from the server via describe.
     pub async fn uri(&self) -> Result<String> {
         self.inner.uri().await
     }
@@ -1861,8 +1825,6 @@ impl Table {
 
     /// Drop an index from the table.
     ///
-    /// Note: This is not yet available in LanceDB cloud.
-    ///
     /// This does not delete the index from disk, it just removes it from the table.
     /// To delete the index, run [`Self::optimize()`] after dropping the index.
     ///
@@ -1889,23 +1851,7 @@ impl Table {
         self.inner.prewarm_index(name).await
     }
 
-    /// Prewarm data for the table.
-    ///
-    /// This is a hint to the database that the given columns will be accessed in
-    /// the future and the database should prefetch the data if possible.  This
-    /// can reduce cold-start latency for subsequent queries.  Currently only
-    /// supported on remote tables.
-    ///
-    /// This call initiates prewarming and returns once the request is accepted.
-    /// It is idempotent and safe to call from multiple clients concurrently —
-    /// calling it on already-prewarmed columns is a no-op on the server.
-    ///
-    /// This operation has a large upfront cost but can speed up future queries
-    /// that need to fetch the given columns.  Large columns such as embeddings
-    /// or binary data may not be practical to prewarm.  This feature is intended
-    /// for workloads that issue many queries against the same columns.
-    ///
-    /// If `columns` is `None`, all columns are prewarmed.
+    /// Prewarm data columns into cache.
     pub async fn prewarm_data(&self, columns: Option<Vec<String>>) -> Result<()> {
         self.inner.prewarm_data(columns).await
     }
@@ -2816,6 +2762,22 @@ impl BaseTable for NativeTable {
         Ok(self.dataset.get().await?.versions().await?)
     }
 
+    async fn get_version_info(&self, version: u64) -> Result<Version> {
+        let dataset = self.dataset.get().await?;
+        let versioned = dataset
+            .checkout_version(version)
+            .await
+            .map_err(|e| match &e {
+                lance::Error::NotFound { .. }
+                | lance::Error::DatasetNotFound { .. }
+                | lance::Error::VersionNotFound { .. } => Error::InvalidInput {
+                    message: format!("Version {} not found", version),
+                },
+                _ => e.into(),
+            })?;
+        Ok(versioned.version())
+    }
+
     async fn restore(&self) -> Result<()> {
         let version = self
             .dataset
@@ -2845,6 +2807,7 @@ impl BaseTable for NativeTable {
         TableDefinition::try_from_rich_schema(schema)
     }
 
+    #[tracing::instrument(name = "lancedb.native.count_rows", skip_all, fields(table = self.name))]
     async fn count_rows(&self, filter: Option<Filter>) -> Result<usize> {
         let dataset = self.dataset.get().await?;
         match filter {
@@ -2856,6 +2819,7 @@ impl BaseTable for NativeTable {
         }
     }
 
+    #[tracing::instrument(name = "lancedb.native.add", skip_all, fields(table = self.name))]
     async fn add(&self, mut add: AddDataBuilder) -> Result<AddResult> {
         let table_def = self.table_definition().await?;
 
@@ -2954,6 +2918,7 @@ impl BaseTable for NativeTable {
         Ok(AddResult { version })
     }
 
+    #[tracing::instrument(name = "lancedb.native.create_index", skip_all, fields(table = self.name))]
     async fn create_index(&self, opts: IndexBuilder) -> Result<()> {
         if opts.columns.len() != 1 {
             return Err(Error::Schema {
@@ -2993,12 +2958,7 @@ impl BaseTable for NativeTable {
         Ok(dataset.prewarm_index(index_name).await?)
     }
 
-    async fn prewarm_data(&self, _columns: Option<Vec<String>>) -> Result<()> {
-        Err(Error::NotSupported {
-            message: "prewarm_data is currently only supported on remote tables.".into(),
-        })
-    }
-
+    #[tracing::instrument(name = "lancedb.native.update", skip_all, fields(table = self.name))]
     async fn update(&self, update: UpdateBuilder) -> Result<UpdateResult> {
         // Delegate to the submodule implementation
         let result = update::execute_update(self, update).await?;
@@ -3014,6 +2974,7 @@ impl BaseTable for NativeTable {
         query::create_plan(self, query, options).await
     }
 
+    #[tracing::instrument(name = "lancedb.native.query", skip_all, fields(table = self.name))]
     async fn query(
         &self,
         query: &AnyQuery,
@@ -3030,6 +2991,7 @@ impl BaseTable for NativeTable {
         query::analyze_query_plan(self, query, options).await
     }
 
+    #[tracing::instrument(name = "lancedb.native.merge_insert", skip_all, fields(table = self.name))]
     async fn merge_insert(
         &self,
         params: MergeInsertBuilder,
@@ -3079,6 +3041,7 @@ impl BaseTable for NativeTable {
         crate::blob::take_blob_files_aligned(&dataset, column, row_ids).await
     }
 
+    #[tracing::instrument(name = "lancedb.native.delete", skip_all, fields(table = self.name))]
     /// Delete rows from the table
     async fn delete(&self, predicate: Predicate<'_>) -> Result<DeleteResult> {
         let result = delete::execute_delete(self, predicate).await?;
@@ -3092,6 +3055,7 @@ impl BaseTable for NativeTable {
         }))
     }
 
+    #[tracing::instrument(name = "lancedb.native.optimize", skip_all, fields(table = self.name))]
     async fn optimize(&self, action: OptimizeAction) -> Result<OptimizeStats> {
         // Delegate to the submodule implementation
         optimize::execute_optimize(self, action).await
@@ -3446,6 +3410,7 @@ mod tests {
     use super::*;
     use crate::connect;
     use crate::connection::ConnectBuilder;
+    use crate::index::scalar::BitmapIndexBuilder;
     use crate::query::Select;
     use crate::query::{ExecutableQuery, QueryBase};
     use crate::test_utils::connection::new_test_connection;
@@ -4835,5 +4800,513 @@ mod tests {
                 },
             }
         )
+    }
+
+    #[tokio::test]
+    pub async fn test_list_indices_skip_frag_reuse() {
+        let tmp_dir = tempdir().unwrap();
+        let uri = tmp_dir.path().to_str().unwrap();
+
+        let conn = ConnectBuilder::new(uri).execute().await.unwrap();
+
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("id", DataType::Int32, false),
+            Field::new("foo", DataType::Int32, true),
+        ]));
+        let batch = RecordBatch::try_new(
+            schema.clone(),
+            vec![
+                Arc::new(Int32Array::from_iter_values(0..100)),
+                Arc::new(Int32Array::from_iter_values(0..100)),
+            ],
+        )
+        .unwrap();
+
+        let table = conn
+            .create_table("test_list_indices_skip_frag_reuse", batch.clone())
+            .execute()
+            .await
+            .unwrap();
+
+        table.add(batch.clone()).execute().await.unwrap();
+
+        table
+            .create_index(&["id"], Index::Bitmap(BitmapIndexBuilder {}))
+            .execute()
+            .await
+            .unwrap();
+
+        table
+            .optimize(OptimizeAction::Compact {
+                options: CompactionOptions {
+                    target_rows_per_fragment: 2_000,
+                    defer_index_remap: true,
+                    ..Default::default()
+                },
+                remap_options: None,
+            })
+            .await
+            .unwrap();
+
+        let result = table.list_indices().await.unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].index_type, crate::index::IndexType::Bitmap);
+    }
+
+    #[tokio::test]
+    async fn test_get_version_info() {
+        let tmp_dir = tempdir().unwrap();
+        let uri = tmp_dir.path().to_str().unwrap();
+
+        let batch = make_test_batches();
+        let reader: Box<dyn RecordBatchReader + Send> = Box::new(RecordBatchIterator::new(
+            vec![Ok(batch.clone())],
+            batch.schema(),
+        ));
+
+        let conn = connect(uri).execute().await.unwrap();
+        let table = conn
+            .create_table("my_table", reader)
+            .execute()
+            .await
+            .unwrap();
+
+        let current_version = table.version().await.unwrap();
+        let info = table.get_version_info(current_version).await.unwrap();
+        assert_eq!(info.version, current_version);
+    }
+
+    #[tokio::test]
+    async fn test_get_version_info_not_found() {
+        let tmp_dir = tempdir().unwrap();
+        let uri = tmp_dir.path().to_str().unwrap();
+
+        let batch = make_test_batches();
+        let reader: Box<dyn RecordBatchReader + Send> = Box::new(RecordBatchIterator::new(
+            vec![Ok(batch.clone())],
+            batch.schema(),
+        ));
+
+        let conn = connect(uri).execute().await.unwrap();
+        let table = conn
+            .create_table("my_table", reader)
+            .execute()
+            .await
+            .unwrap();
+
+        let result = table.get_version_info(99999).await;
+        assert!(matches!(result.unwrap_err(), Error::InvalidInput { .. }));
+    }
+
+    #[tokio::test]
+    async fn test_get_version_by_time() {
+        let tmp_dir = tempdir().unwrap();
+        let uri = tmp_dir.path().to_str().unwrap();
+
+        let batch = make_test_batches();
+        let reader: Box<dyn RecordBatchReader + Send> = Box::new(RecordBatchIterator::new(
+            vec![Ok(batch.clone())],
+            batch.schema(),
+        ));
+
+        let conn = connect(uri).execute().await.unwrap();
+        let table = conn
+            .create_table("my_table", reader)
+            .execute()
+            .await
+            .unwrap();
+
+        let v1 = table.version().await.unwrap();
+        let v1_info = table.get_version_info(v1).await.unwrap();
+
+        // Add data to create v2
+        let batch2 = make_test_batches();
+        let reader2: Box<dyn RecordBatchReader + Send> = Box::new(RecordBatchIterator::new(
+            vec![Ok(batch2.clone())],
+            batch2.schema(),
+        ));
+        table.add(reader2).execute().await.unwrap();
+        let v2 = table.version().await.unwrap();
+        let v2_info = table.get_version_info(v2).await.unwrap();
+
+        // Query at v1's timestamp should return v1
+        let result = table.get_version_by_time(v1_info.timestamp).await.unwrap();
+        assert_eq!(result.version, v1);
+
+        // Query at v2's timestamp should return v2
+        let result = table.get_version_by_time(v2_info.timestamp).await.unwrap();
+        assert_eq!(result.version, v2);
+
+        // Query far in the future should return latest
+        let future = Utc::now() + chrono::Duration::days(365);
+        let result = table.get_version_by_time(future).await.unwrap();
+        assert_eq!(result.version, v2);
+
+        // Query far in the past should error
+        let past = DateTime::parse_from_rfc3339("2000-01-01T00:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let result = table.get_version_by_time(past).await;
+        assert!(matches!(result.unwrap_err(), Error::InvalidInput { .. }));
+    }
+
+    #[tokio::test]
+    async fn test_get_version_by_time_after_prune() {
+        let tmp_dir = tempdir().unwrap();
+        let uri = tmp_dir.path().to_str().unwrap();
+
+        let batch = make_test_batches();
+        let reader: Box<dyn RecordBatchReader + Send> = Box::new(RecordBatchIterator::new(
+            vec![Ok(batch.clone())],
+            batch.schema(),
+        ));
+
+        let conn = connect(uri).execute().await.unwrap();
+        let table = conn
+            .create_table("my_table", reader)
+            .execute()
+            .await
+            .unwrap();
+
+        // Create v2
+        let batch2 = make_test_batches();
+        let reader2: Box<dyn RecordBatchReader + Send> = Box::new(RecordBatchIterator::new(
+            vec![Ok(batch2.clone())],
+            batch2.schema(),
+        ));
+        table.add(reader2).execute().await.unwrap();
+
+        // Create v3
+        let batch3 = make_test_batches();
+        let reader3: Box<dyn RecordBatchReader + Send> = Box::new(RecordBatchIterator::new(
+            vec![Ok(batch3.clone())],
+            batch3.schema(),
+        ));
+        table.add(reader3).execute().await.unwrap();
+
+        let v3 = table.version().await.unwrap();
+        assert_eq!(v3, 3);
+
+        let v3_info = table.get_version_info(v3).await.unwrap();
+
+        // Prune old versions (v1, v2) — this creates gaps in version numbers
+        table
+            .optimize(OptimizeAction::Prune {
+                older_than: Some(chrono::Duration::zero()),
+                delete_unverified: Some(true),
+                error_if_tagged_old_versions: None,
+            })
+            .await
+            .unwrap();
+
+        // v1 and v2 should no longer be accessible
+        assert!(table.get_version_info(1).await.is_err());
+        assert!(table.get_version_info(2).await.is_err());
+
+        // get_version_by_time should still find v3 despite the gaps
+        let result = table.get_version_by_time(v3_info.timestamp).await.unwrap();
+        assert_eq!(result.version, v3);
+
+        // Future time should also return v3
+        let future = Utc::now() + chrono::Duration::days(365);
+        let result = table.get_version_by_time(future).await.unwrap();
+        assert_eq!(result.version, v3);
+    }
+
+    /// A mock table that tracks how many times `get_version_info` is called,
+    /// used to verify the binary search in `get_version_by_time` is efficient.
+    #[derive(Debug)]
+    struct MockVersionTable {
+        num_versions: u64,
+        base_time: chrono::DateTime<chrono::Utc>,
+        read_count: std::sync::atomic::AtomicU64,
+    }
+
+    impl std::fmt::Display for MockVersionTable {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "MockVersionTable({})", self.num_versions)
+        }
+    }
+
+    #[async_trait]
+    impl BaseTable for MockVersionTable {
+        fn as_any(&self) -> &dyn std::any::Any {
+            self
+        }
+        fn name(&self) -> &str {
+            "mock"
+        }
+        fn namespace(&self) -> &[String] {
+            &[]
+        }
+        fn id(&self) -> &str {
+            "mock"
+        }
+        async fn version(&self) -> Result<u64> {
+            Ok(self.num_versions)
+        }
+        async fn get_version_info(&self, version: u64) -> Result<Version> {
+            self.read_count
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            if version < 1 || version > self.num_versions {
+                return Err(Error::InvalidInput {
+                    message: format!("Version {} not found", version),
+                });
+            }
+            Ok(Version {
+                version,
+                timestamp: self.base_time + chrono::Duration::seconds(version as i64),
+                metadata: Default::default(),
+            })
+        }
+        async fn list_versions(&self) -> Result<Vec<Version>> {
+            unimplemented!("not needed for binary search test")
+        }
+        async fn create_branch(
+            &self,
+            _name: &str,
+            _from: lance::dataset::refs::Ref,
+        ) -> Result<Arc<dyn BaseTable>> {
+            unimplemented!()
+        }
+        async fn checkout_branch(&self, _name: &str) -> Result<Arc<dyn BaseTable>> {
+            unimplemented!()
+        }
+        async fn list_branches(&self) -> Result<HashMap<String, BranchContents>> {
+            unimplemented!()
+        }
+        async fn delete_branch(&self, _name: &str) -> Result<()> {
+            unimplemented!()
+        }
+        fn current_branch(&self) -> Option<String> {
+            None
+        }
+        async fn schema(&self) -> Result<SchemaRef> {
+            unimplemented!()
+        }
+        async fn count_rows(&self, _filter: Option<Filter>) -> Result<usize> {
+            unimplemented!()
+        }
+        async fn create_plan(
+            &self,
+            _query: &AnyQuery,
+            _options: QueryExecutionOptions,
+        ) -> Result<Arc<dyn ExecutionPlan>> {
+            unimplemented!()
+        }
+        async fn query(
+            &self,
+            _query: &AnyQuery,
+            _options: QueryExecutionOptions,
+        ) -> Result<DatasetRecordBatchStream> {
+            unimplemented!()
+        }
+        async fn analyze_plan(
+            &self,
+            _query: &AnyQuery,
+            _options: QueryExecutionOptions,
+        ) -> Result<String> {
+            unimplemented!()
+        }
+        async fn add(&self, _add: AddDataBuilder) -> Result<AddResult> {
+            unimplemented!()
+        }
+        async fn delete(&self, _predicate: Predicate<'_>) -> Result<DeleteResult> {
+            unimplemented!()
+        }
+        async fn update(&self, _update: UpdateBuilder) -> Result<UpdateResult> {
+            unimplemented!()
+        }
+        async fn create_index(&self, _index: IndexBuilder) -> Result<()> {
+            unimplemented!()
+        }
+        async fn list_indices(&self) -> Result<Vec<IndexConfig>> {
+            unimplemented!()
+        }
+        async fn drop_index(&self, _name: &str) -> Result<()> {
+            unimplemented!()
+        }
+        async fn prewarm_index(&self, _name: &str) -> Result<()> {
+            unimplemented!()
+        }
+        async fn index_stats(&self, _index_name: &str) -> Result<Option<IndexStatistics>> {
+            unimplemented!()
+        }
+        async fn merge_insert(
+            &self,
+            _params: MergeInsertBuilder,
+            _new_data: Box<dyn RecordBatchReader + Send>,
+        ) -> Result<MergeResult> {
+            unimplemented!()
+        }
+        async fn tags(&self) -> Result<Box<dyn Tags + '_>> {
+            unimplemented!()
+        }
+        async fn optimize(&self, _action: OptimizeAction) -> Result<OptimizeStats> {
+            unimplemented!()
+        }
+        async fn add_columns(
+            &self,
+            _transforms: NewColumnTransform,
+            _read_columns: Option<Vec<String>>,
+        ) -> Result<AddColumnsResult> {
+            unimplemented!()
+        }
+        async fn alter_columns(
+            &self,
+            _alterations: &[ColumnAlteration],
+        ) -> Result<AlterColumnsResult> {
+            unimplemented!()
+        }
+        async fn drop_columns(&self, _columns: &[&str]) -> Result<DropColumnsResult> {
+            unimplemented!()
+        }
+        async fn checkout(&self, _version: u64) -> Result<()> {
+            unimplemented!()
+        }
+        async fn checkout_tag(&self, _tag: &str) -> Result<()> {
+            unimplemented!()
+        }
+        async fn checkout_latest(&self) -> Result<()> {
+            unimplemented!()
+        }
+        async fn restore(&self) -> Result<()> {
+            unimplemented!()
+        }
+        async fn table_definition(&self) -> Result<TableDefinition> {
+            unimplemented!()
+        }
+        async fn uri(&self) -> Result<String> {
+            unimplemented!()
+        }
+        #[allow(deprecated)]
+        async fn storage_options(&self) -> Option<HashMap<String, String>> {
+            unimplemented!()
+        }
+        async fn initial_storage_options(&self) -> Option<HashMap<String, String>> {
+            unimplemented!()
+        }
+        async fn latest_storage_options(&self) -> Result<Option<HashMap<String, String>>> {
+            unimplemented!()
+        }
+        async fn wait_for_index(
+            &self,
+            _index_names: &[&str],
+            _timeout: std::time::Duration,
+        ) -> Result<()> {
+            unimplemented!()
+        }
+        async fn stats(&self) -> Result<TableStatistics> {
+            unimplemented!()
+        }
+    }
+
+    #[tokio::test]
+    async fn test_get_version_by_time_binary_search_efficiency() {
+        let num_versions = 1000u64;
+        let base_time = chrono::Utc::now() - chrono::Duration::seconds(num_versions as i64 + 1);
+        let mock = MockVersionTable {
+            num_versions,
+            base_time,
+            read_count: std::sync::atomic::AtomicU64::new(0),
+        };
+
+        // Query for the version at the midpoint
+        let target_version = 500u64;
+        let target_time = base_time + chrono::Duration::seconds(target_version as i64);
+        let result = mock.get_version_by_time(target_time).await.unwrap();
+        assert_eq!(result.version, target_version);
+
+        let reads = mock.read_count.load(std::sync::atomic::Ordering::Relaxed);
+        // Binary search on 1000 versions should need at most log2(1000) ≈ 10 reads.
+        // We allow up to 20 to leave some margin.
+        assert!(
+            reads <= 20,
+            "Binary search read {reads} manifests for {num_versions} versions, expected <= 20"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_query_execution_produces_tracing_span() {
+        use std::sync::{Arc, Mutex};
+        use tracing_subscriber::layer::SubscriberExt;
+
+        // Collect (name, span_id, parent_id) tuples via a custom layer
+        #[derive(Debug, Clone)]
+        struct SpanInfo {
+            name: String,
+            id: u64,
+            parent_id: Option<u64>,
+        }
+        let spans: Arc<Mutex<Vec<SpanInfo>>> = Arc::new(Mutex::new(Vec::new()));
+        let spans_clone = spans.clone();
+
+        struct SpanCollector(Arc<Mutex<Vec<SpanInfo>>>);
+        impl<S: tracing::Subscriber + for<'a> tracing_subscriber::registry::LookupSpan<'a>>
+            tracing_subscriber::Layer<S> for SpanCollector
+        {
+            fn on_new_span(
+                &self,
+                attrs: &tracing::span::Attributes<'_>,
+                id: &tracing::span::Id,
+                ctx: tracing_subscriber::layer::Context<'_, S>,
+            ) {
+                let parent_id = attrs
+                    .parent()
+                    .cloned()
+                    .or_else(|| ctx.current_span().id().cloned())
+                    .map(|pid| pid.into_u64());
+                self.0.lock().unwrap().push(SpanInfo {
+                    name: attrs.metadata().name().to_string(),
+                    id: id.into_u64(),
+                    parent_id,
+                });
+            }
+        }
+
+        let subscriber = tracing_subscriber::registry().with(SpanCollector(spans_clone));
+        let _guard = tracing::subscriber::set_default(subscriber);
+
+        let tmp_dir = tempdir().unwrap();
+        let uri = tmp_dir.path().to_str().unwrap();
+        let db = crate::connect(uri).execute().await.unwrap();
+        let schema = Arc::new(Schema::new(vec![Field::new("id", DataType::Int32, false)]));
+        let data = RecordBatch::try_new(
+            schema.clone(),
+            vec![Arc::new(Int32Array::from(vec![1, 2, 3]))],
+        )
+        .unwrap();
+        let table = db.create_table("test_spans", data).execute().await.unwrap();
+
+        let _results = table.query().execute().await.unwrap();
+
+        let collected = spans.lock().unwrap();
+        assert!(
+            collected.iter().all(|s| s.name != "lancedb.table.query"),
+            "Did not expect 'lancedb.table.query' span, found: {:?}",
+            collected.iter().map(|s| &s.name).collect::<Vec<_>>()
+        );
+
+        // Verify that the query execution span is present
+        let execute_span = collected
+            .iter()
+            .find(|s| s.name == "lancedb.query.execute")
+            .expect("lancedb.query.execute span should exist");
+
+        // Verify parent-child: lancedb.native.query should be a child of
+        // lancedb.query.execute (confirming span propagation works)
+        let native_query = collected.iter().find(|s| s.name == "lancedb.native.query");
+        if let Some(nq) = native_query {
+            assert_eq!(
+                nq.parent_id,
+                Some(execute_span.id),
+                "lancedb.native.query should be a child of lancedb.query.execute"
+            );
+        }
+
+        // All spans should have valid IDs (non-zero)
+        for span in collected.iter() {
+            assert!(span.id > 0, "Span '{}' has invalid id 0", span.name);
+        }
     }
 }

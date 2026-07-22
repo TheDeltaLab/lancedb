@@ -153,9 +153,6 @@ impl AddDataBuilder {
 
     /// Build a DataFusion execution plan that applies embeddings, casts data to
     /// the table schema, and optionally rejects NaN vectors.
-    ///
-    /// Returns the plan along with whether the input is rescannable (for retry
-    /// decisions) and whether this is an overwrite operation.
     pub(crate) fn into_plan(
         mut self,
         table_schema: &Schema,
@@ -175,7 +172,6 @@ impl AddDataBuilder {
         self.data =
             scannable_with_embeddings(self.data, table_def, self.embedding_registry.as_ref())?;
 
-        let rescannable = self.data.rescannable();
         let tracker = self
             .progress_callback
             .map(|cb| Arc::new(WriteProgressTracker::new(cb, self.data.num_rows())));
@@ -194,8 +190,6 @@ impl AddDataBuilder {
 
         Ok(PreprocessingOutput {
             plan,
-            overwrite,
-            rescannable,
             write_options: self.write_options,
             mode: self.mode,
             tracker,
@@ -205,10 +199,6 @@ impl AddDataBuilder {
 
 pub struct PreprocessingOutput {
     pub plan: Arc<dyn datafusion_physical_plan::ExecutionPlan>,
-    #[cfg_attr(not(feature = "remote"), allow(dead_code))]
-    pub overwrite: bool,
-    #[cfg_attr(not(feature = "remote"), allow(dead_code))]
-    pub rescannable: bool,
     pub write_options: WriteOptions,
     pub mode: AddDataMode,
     pub tracker: Option<Arc<WriteProgressTracker>>,

@@ -654,6 +654,8 @@ pub enum AnalyzePlanDistributedMetrics {
 }
 
 impl AnalyzePlanDistributedMetrics {
+    // Only used by remote tables, which this fork does not include.
+    #[allow(dead_code)]
     pub(crate) fn as_query_param(self) -> &'static str {
         match self {
             Self::Aggregate => "aggregate",
@@ -1001,6 +1003,11 @@ impl ExecutableQuery for Query {
         self.parent.clone().create_plan(&req, options).await
     }
 
+    #[tracing::instrument(
+        name = "lancedb.query.execute",
+        skip_all,
+        fields(query_type = "filter")
+    )]
     async fn execute_with_options(
         &self,
         options: QueryExecutionOptions,
@@ -1335,12 +1342,23 @@ impl VectorQuery {
     ) -> Result<SendableRecordBatchStream> {
         let max_batch_length = options.max_batch_length as usize;
         let internal_options = options.without_output_batch_length_limit();
+
+        // Save the original select so we can apply it after reranking.
+        // Sub-queries need all columns for the reranker to work correctly.
+        let original_select = self.request.base.select.clone();
+
         // clone query and specify we want to include row IDs, which can be needed for reranking
         let mut fts_query = Query::new(self.parent.clone());
         fts_query.request = self.request.base.clone();
         fts_query = fts_query.with_row_id();
 
         let mut vector_query = self.clone().with_row_id();
+
+        // Clear user select on sub-queries so the reranker sees all columns
+        if matches!(original_select, Select::Columns(_)) {
+            fts_query.request.select = Select::All;
+            vector_query.request.base.select = Select::All;
+        }
 
         vector_query.request.base.full_text_search = None;
         let (fts_results, vec_results) = try_join!(
@@ -1365,6 +1383,13 @@ impl VectorQuery {
             vec_results = hybrid::rank(vec_results, DIST_COL, None)?;
             fts_results = hybrid::rank(fts_results, SCORE_COL, None)?;
         }
+
+        // Save original scores before normalization so we can restore them
+        // after reranking.  The reranker needs normalized values to work
+        // correctly, but the caller expects the raw scores in the output.
+        // (Mirrors the Python fix in lancedb#2061.)
+        let original_distances = hybrid::OriginalScores::save(&vec_results, DIST_COL);
+        let original_scores = hybrid::OriginalScores::save(&fts_results, SCORE_COL);
 
         vec_results = hybrid::normalize_scores(vec_results, DIST_COL, None)?;
         fts_results = hybrid::normalize_scores(fts_results, SCORE_COL, None)?;
@@ -1391,6 +1416,15 @@ impl VectorQuery {
 
         check_reranker_result(&results)?;
 
+        // Restore original (pre-normalization) scores so the caller sees raw
+        // _distance and _score values instead of the [0,1] normalized ones.
+        if let Some(ref orig) = original_distances {
+            results = hybrid::restore_original_scores(results, DIST_COL, orig)?;
+        }
+        if let Some(ref orig) = original_scores {
+            results = hybrid::restore_original_scores(results, SCORE_COL, orig)?;
+        }
+
         let limit = self.request.base.limit.unwrap_or(DEFAULT_TOP_K);
         if results.num_rows() > limit {
             results = results.slice(0, limit);
@@ -1398,6 +1432,27 @@ impl VectorQuery {
 
         if !self.request.base.with_row_id {
             results = results.drop_column(ROW_ID)?;
+        }
+
+        // Apply the original select projection after reranking.
+        // Strictly follow user's select — score columns must be explicitly selected.
+        if let Select::Columns(ref columns) = original_select {
+            let schema = results.schema();
+            let indices: Vec<usize> = schema
+                .fields()
+                .iter()
+                .enumerate()
+                .filter_map(|(i, f)| {
+                    if columns.iter().any(|c| c == f.name()) {
+                        Some(i)
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            if indices.len() < schema.fields().len() {
+                results = results.project(&indices)?;
+            }
         }
 
         Ok(single_batch_stream(results, max_batch_length))
@@ -1444,6 +1499,7 @@ impl ExecutableQuery for VectorQuery {
         self.parent.clone().create_plan(&query, options).await
     }
 
+    #[tracing::instrument(name = "lancedb.query.execute", skip_all, fields(query_type = "vector", top_k = self.request.base.limit.unwrap_or(DEFAULT_TOP_K)))]
     async fn execute_with_options(
         &self,
         options: QueryExecutionOptions,
@@ -1580,6 +1636,7 @@ impl ExecutableQuery for TakeQuery {
         self.parent.clone().create_plan(&req, options).await
     }
 
+    #[tracing::instrument(name = "lancedb.query.execute", skip_all, fields(query_type = "take"))]
     async fn execute_with_options(
         &self,
         options: QueryExecutionOptions,
@@ -2413,6 +2470,289 @@ mod tests {
             .try_collect::<Vec<_>>()
             .await
             .unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_hybrid_search_with_select_and_return_score_all() {
+        use crate::rerankers::ReturnScore;
+        use crate::rerankers::rrf::RRFReranker;
+
+        let tmp_dir = tempdir().unwrap();
+        let dataset_path = tmp_dir.path();
+        let conn = connect(dataset_path.to_str().unwrap())
+            .execute()
+            .await
+            .unwrap();
+
+        let dims = 2;
+        let schema = Arc::new(ArrowSchema::new(vec![
+            ArrowField::new("text", DataType::Utf8, false),
+            ArrowField::new(
+                "vector",
+                DataType::FixedSizeList(
+                    Arc::new(ArrowField::new("item", DataType::Float32, true)),
+                    dims,
+                ),
+                false,
+            ),
+        ]));
+
+        let text = StringArray::from(vec!["dog", "cat"]);
+        let vectors = vec![
+            Some(vec![Some(0.1), Some(0.1)]),
+            Some(vec![Some(0.2), Some(0.2)]),
+        ];
+        let vector = FixedSizeListArray::from_iter_primitive::<Float32Type, _, _>(vectors, dims);
+
+        let record_batch =
+            RecordBatch::try_new(schema.clone(), vec![Arc::new(text), Arc::new(vector)]).unwrap();
+        let table = conn
+            .create_table("my_table", record_batch)
+            .execute()
+            .await
+            .unwrap();
+
+        table
+            .create_index(&["text"], crate::index::Index::FTS(Default::default()))
+            .replace(true)
+            .execute()
+            .await
+            .unwrap();
+
+        let fts_query = FullTextSearchQuery::new("dog".to_string());
+        let reranker = RRFReranker::new_with_score(60.0, ReturnScore::All);
+        let results = table
+            .query()
+            .full_text_search(fts_query)
+            .select(Select::columns(&[
+                "text",
+                "_distance",
+                "_score",
+                "_relevance_score",
+            ]))
+            .limit(5)
+            .nearest_to(&[0.1, 0.1])
+            .unwrap()
+            .rerank(Arc::new(reranker))
+            .execute()
+            .await
+            .unwrap()
+            .try_collect::<Vec<_>>()
+            .await
+            .unwrap();
+
+        assert!(!results.is_empty());
+        let batch = concat_batches(&results[0].schema(), results.iter()).unwrap();
+
+        let schema = batch.schema();
+        let field_names: Vec<&str> = schema.fields().iter().map(|f| f.name().as_str()).collect();
+        assert!(
+            field_names.contains(&"text"),
+            "missing text: {:?}",
+            field_names
+        );
+        assert!(
+            field_names.contains(&"_distance"),
+            "missing _distance: {:?}",
+            field_names
+        );
+        assert!(
+            field_names.contains(&"_score"),
+            "missing _score: {:?}",
+            field_names
+        );
+        assert!(
+            field_names.contains(&"_relevance_score"),
+            "missing _relevance_score: {:?}",
+            field_names
+        );
+        assert!(
+            !field_names.contains(&"vector"),
+            "vector should not be present: {:?}",
+            field_names
+        );
+
+        // When select does not include score columns, they should not appear
+        let fts_query2 = FullTextSearchQuery::new("dog".to_string());
+        let reranker2 = RRFReranker::new_with_score(60.0, ReturnScore::All);
+        let results2 = table
+            .query()
+            .full_text_search(fts_query2)
+            .select(Select::columns(&["text"]))
+            .limit(5)
+            .nearest_to(&[0.1, 0.1])
+            .unwrap()
+            .rerank(Arc::new(reranker2))
+            .execute()
+            .await
+            .unwrap()
+            .try_collect::<Vec<_>>()
+            .await
+            .unwrap();
+
+        assert!(!results2.is_empty());
+        let batch2 = concat_batches(&results2[0].schema(), results2.iter()).unwrap();
+        let schema2 = batch2.schema();
+        let field_names2: Vec<&str> = schema2.fields().iter().map(|f| f.name().as_str()).collect();
+        assert!(field_names2.contains(&"text"));
+        assert!(!field_names2.contains(&"_distance"));
+        assert!(!field_names2.contains(&"_score"));
+        assert!(!field_names2.contains(&"_relevance_score"));
+        assert!(!field_names2.contains(&"vector"));
+    }
+
+    /// Regression test: hybrid search must return raw (pre-normalization)
+    /// `_distance` and `_score` values that match standalone vector / FTS
+    /// searches, not the [0,1] normalized values used internally for reranking.
+    #[tokio::test]
+    async fn test_hybrid_search_restores_original_scores() {
+        use crate::rerankers::ReturnScore;
+        use crate::rerankers::rrf::RRFReranker;
+
+        let tmp_dir = tempdir().unwrap();
+        let conn = connect(tmp_dir.path().to_str().unwrap())
+            .execute()
+            .await
+            .unwrap();
+
+        let dims = 2;
+        let schema = Arc::new(ArrowSchema::new(vec![
+            ArrowField::new("text", DataType::Utf8, false),
+            ArrowField::new(
+                "vector",
+                DataType::FixedSizeList(
+                    Arc::new(ArrowField::new("item", DataType::Float32, true)),
+                    dims,
+                ),
+                false,
+            ),
+        ]));
+
+        // Use vectors with clearly different distances from the query [0,0].
+        let text = StringArray::from(vec!["dog", "cat", "bird", "fish"]);
+        let vectors = vec![
+            Some(vec![Some(1.0), Some(0.0)]),   // distance ~1.0
+            Some(vec![Some(3.0), Some(0.0)]),   // distance ~9.0
+            Some(vec![Some(0.5), Some(0.5)]),   // distance ~0.5
+            Some(vec![Some(10.0), Some(10.0)]), // distance ~200.0
+        ];
+        let vector = FixedSizeListArray::from_iter_primitive::<Float32Type, _, _>(vectors, dims);
+        let batch =
+            RecordBatch::try_new(schema.clone(), vec![Arc::new(text), Arc::new(vector)]).unwrap();
+        let table = conn
+            .create_table("scores_test", batch)
+            .execute()
+            .await
+            .unwrap();
+        table
+            .create_index(&["text"], crate::index::Index::FTS(Default::default()))
+            .execute()
+            .await
+            .unwrap();
+
+        // --- standalone vector search: build text→distance map ---
+        let vec_results = table
+            .query()
+            .nearest_to(&[0.0_f32, 0.0])
+            .unwrap()
+            .limit(10)
+            .execute()
+            .await
+            .unwrap()
+            .try_collect::<Vec<_>>()
+            .await
+            .unwrap();
+        let vec_batch = concat_batches(&vec_results[0].schema(), &vec_results).unwrap();
+        let vec_texts: StringArray = downcast_array(vec_batch.column_by_name("text").unwrap());
+        let vec_distances: Float32Array =
+            downcast_array(vec_batch.column_by_name("_distance").unwrap());
+        let vec_map: std::collections::HashMap<String, f32> = vec_texts
+            .iter()
+            .enumerate()
+            .map(|(i, t)| (t.unwrap().to_string(), vec_distances.value(i)))
+            .collect();
+
+        // --- standalone FTS search: build text→score map ---
+        let fts_results = table
+            .query()
+            .full_text_search(FullTextSearchQuery::new("dog".to_string()))
+            .limit(10)
+            .execute()
+            .await
+            .unwrap()
+            .try_collect::<Vec<_>>()
+            .await
+            .unwrap();
+        let fts_batch = concat_batches(&fts_results[0].schema(), &fts_results).unwrap();
+        let fts_texts: StringArray = downcast_array(fts_batch.column_by_name("text").unwrap());
+        let fts_scores: Float32Array = downcast_array(fts_batch.column_by_name("_score").unwrap());
+        let fts_map: std::collections::HashMap<String, f32> = fts_texts
+            .iter()
+            .enumerate()
+            .map(|(i, t)| (t.unwrap().to_string(), fts_scores.value(i)))
+            .collect();
+
+        // --- hybrid search with ReturnScore::All ---
+        let reranker = Arc::new(RRFReranker::new_with_score(60.0, ReturnScore::All));
+        let hybrid_results = table
+            .query()
+            .full_text_search(FullTextSearchQuery::new("dog".to_string()))
+            .nearest_to(&[0.0_f32, 0.0])
+            .unwrap()
+            .rerank(reranker)
+            .limit(10)
+            .execute_hybrid(QueryExecutionOptions::default())
+            .await
+            .unwrap()
+            .try_collect::<Vec<_>>()
+            .await
+            .unwrap();
+        let hybrid_batch = concat_batches(&hybrid_results[0].schema(), &hybrid_results).unwrap();
+
+        let h_texts: StringArray = downcast_array(hybrid_batch.column_by_name("text").unwrap());
+        let h_distances: Float32Array =
+            downcast_array(hybrid_batch.column_by_name("_distance").unwrap());
+        let h_scores: Float32Array = downcast_array(hybrid_batch.column_by_name("_score").unwrap());
+
+        // For every row in the hybrid result, verify its _distance / _score
+        // matches the raw value from the standalone search.
+        for i in 0..hybrid_batch.num_rows() {
+            let text = h_texts.value(i);
+
+            if !h_distances.is_null(i) {
+                let hybrid_dist = h_distances.value(i);
+                let expected = vec_map.get(text).unwrap_or_else(|| {
+                    panic!(
+                        "text '{}' found in hybrid _distance but not in vec search",
+                        text
+                    )
+                });
+                assert!(
+                    (hybrid_dist - expected).abs() < 1e-6,
+                    "text '{}' _distance mismatch: hybrid={} expected={}",
+                    text,
+                    hybrid_dist,
+                    expected,
+                );
+            }
+
+            if !h_scores.is_null(i) {
+                let hybrid_score = h_scores.value(i);
+                let expected = fts_map.get(text).unwrap_or_else(|| {
+                    panic!(
+                        "text '{}' found in hybrid _score but not in fts search",
+                        text
+                    )
+                });
+                assert!(
+                    (hybrid_score - expected).abs() < 1e-6,
+                    "text '{}' _score mismatch: hybrid={} expected={}",
+                    text,
+                    hybrid_score,
+                    expected,
+                );
+            }
+        }
     }
 
     #[tokio::test]

@@ -1,45 +1,12 @@
-[**@lancedb/lancedb**](../README.md) • **Docs**
+[**@delta-ai/lancedb**](../README.md) • **Docs**
 
 ***
 
-[@lancedb/lancedb](../globals.md) / ConnectionOptions
+[@delta-ai/lancedb](../globals.md) / ConnectionOptions
 
 # Interface: ConnectionOptions
 
 ## Properties
-
-### apiKey?
-
-```ts
-optional apiKey: string;
-```
-
-(For LanceDB cloud only): the API key to use with LanceDB Cloud.
-
-Can also be set via the environment variable `LANCEDB_API_KEY`.
-
-***
-
-### clientConfig?
-
-```ts
-optional clientConfig: ClientConfig;
-```
-
-(For LanceDB cloud only): configuration for the remote HTTP client.
-
-***
-
-### hostOverride?
-
-```ts
-optional hostOverride: string;
-```
-
-(For LanceDB cloud only): the host to use for LanceDB cloud. Used
-for testing purposes.
-
-***
 
 ### manifestEnabled?
 
@@ -61,19 +28,6 @@ optional namespaceClientProperties: Record<string, string>;
 
 (For LanceDB OSS only): extra properties for the backing namespace
 client used by manifest-enabled native connections.
-
-***
-
-### oauthConfig?
-
-```ts
-optional oauthConfig: NativeOAuthConfig;
-```
-
-(For LanceDB cloud only): OAuth configuration for IdP-based
-authentication (e.g., Azure Entra ID). When set, token acquisition
-and refresh are handled entirely in Rust. TypeScript users should pass
-the public `OAuthConfig` type exported from `@lancedb/lancedb`.
 
 ***
 
@@ -99,17 +53,6 @@ storage, raising per-read latency and cost.
 
 ***
 
-### region?
-
-```ts
-optional region: string;
-```
-
-(For LanceDB cloud only): the region to use for LanceDB cloud.
-Defaults to 'us-east-1'.
-
-***
-
 ### session?
 
 ```ts
@@ -127,6 +70,6 @@ shared caches and other session-specific state.
 optional storageOptions: Record<string, string>;
 ```
 
-(For LanceDB OSS only): configuration for object storage.
+Configuration for object storage.
 
 The available options are described at https://docs.lancedb.com/storage/

@@ -1,8 +1,8 @@
-[**@lancedb/lancedb**](../README.md) • **Docs**
+[**@delta-ai/lancedb**](../README.md) • **Docs**
 
 ***
 
-[@lancedb/lancedb](../globals.md) / HnswPqOptions
+[@delta-ai/lancedb](../globals.md) / HnswPqOptions
 
 # Interface: HnswPqOptions
 

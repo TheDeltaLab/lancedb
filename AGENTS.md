@@ -1,49 +1,26 @@
 LanceDB is a database designed for retrieval, including vector, full-text, and hybrid search.
-It is a wrapper around Lance. There are two backends: local (in-process like SQLite) and
-remote (against LanceDB Cloud).
+It is a wrapper around Lance, running in-process like SQLite.
 
-The core of LanceDB is written in Rust. There are bindings in Python, Typescript, and Java.
+This is TheDeltaLab's fork. We maintain only the Rust core and Node.js bindings.
+Python, Java bindings, and remote (LanceDB Cloud) support have been removed.
 
 Project layout:
 
 * `rust/lancedb`: The LanceDB core Rust implementation.
-* `python`: The Python bindings, using PyO3.
 * `nodejs`: The Typescript bindings, using napi-rs
-* `java`: The Java bindings
 
 Common commands:
 
-* Check for compiler errors: `cargo check --quiet --features remote --tests --examples`
-* Run tests: `cargo test --quiet --features remote --tests`
-* Run specific test: `cargo test --quiet --features remote -p <package_name> --test <test_name>`
-* Lint: `cargo clippy --quiet --features remote --tests --examples`
-* Format Rust: `cargo fmt --all`
-* Format Python: `ruff format .`
-* Lint Python: `ruff check .`
-* Bootstrap Python dev env: `cd python && uv run --extra tests --extra dev maturin develop --extras tests,dev`
-* Run Python tests: `cd python && uv run --extra tests pytest python/tests -vv --durations=10 -m "not slow and not s3_test"`
-* Run specific Python test: `cd python && uv run --extra tests pytest python/tests/<test_file>.py::<test_name> -q`
+* Check for compiler errors: `cargo check --quiet --tests --examples`
+* Run tests: `cargo test --quiet --tests`
+* Run specific test: `cargo test --quiet -p <package_name> --test <test_name>`
+* Lint: `cargo clippy --quiet --tests --examples`
+* Format: `cargo fmt --all`
 
-For Python validation, prefer the uv-managed environment declared by `python/uv.lock`.
-Do not treat system `python`, global `pytest`, or missing editable-install errors as
-final blockers; bootstrap or enter the uv environment instead. If `lancedb._lancedb`
-is missing or stale, or if Rust/PyO3 binding code changed, rebuild the Python
-extension with the bootstrap command above before running tests.
+Before committing changes, run formatting and lint:
 
-Before committing changes, run formatting for every language you touched. At minimum:
-
-* Rust changes: run `cargo fmt --all`.
-* Python changes: run `ruff format .` and `ruff check .` from the repository root,
-  and run targeted tests through `cd python && uv run ...`.
-* TypeScript changes: run the relevant `npm`/`pnpm` lint, format, build, and docs commands in `nodejs`.
-
-Before creating a PR, the exact value passed to `gh pr create --title` must follow
-Conventional Commits, such as `fix: support nested field paths in native index creation`
-or `feat(python): add dataset multiprocessing support`. Do not use a plain natural
-language summary like `Support nested field paths in native index creation` as the PR
-title. The semantic-release check uses the PR title and body as the merge commit message,
-so a non-conventional PR title will fail CI. After creating a PR, read the remote PR title
-back and fix it immediately if it is not conventional.
+1. `cargo fmt --all`
+2. `cargo clippy --quiet --tests --examples`
 
 ## Coding tips
 
@@ -69,9 +46,7 @@ back and fix it immediately if it is not conventional.
 ## Example plan: adding a new method on Table
 
 Adding a new method involves first adding it to the Rust core, then exposing it
-in the Python and TypeScript bindings. There are both local and remote tables.
-Remote tables are implemented via a HTTP API and require the `remote` cargo
-feature flag to be enabled. Python has both sync and async methods.
+in the TypeScript bindings.
 
 Rust core changes:
 
@@ -79,19 +54,6 @@ Rust core changes:
 2. Add method to `BaseTable` trait in `rust/lancedb/src/table.rs`.
 3. Implement new trait method on `NativeTable` in `rust/lancedb/src/table.rs`.
     * Test with unit test in `rust/lancedb/src/table.rs`.
-4. Implement new trait method on `RemoteTable` in `rust/lancedb/src/remote/table.rs`.
-    * Test with unit test in `rust/lancedb/src/remote/table.rs` against mocked endpoint.
-
-Python bindings changes:
-
-1. Add PyO3 method binding in `python/src/table.rs`. Run `make develop` to compile bindings.
-2. Add types for PyO3 method in `python/python/lancedb/_lancedb.pyi`.
-3. Add method to `AsyncTable` class in `python/python/lancedb/table.py`.
-4. Add abstract method to `Table` abstract base class in `python/python/lancedb/table.py`.
-5. Add concrete sync method to `LanceTable` class in `python/python/lancedb/table.py`.
-    * Should use `LOOP.run()` to call the corresponding `AsyncTable` method.
-6. Add concrete sync method to `RemoteTable` class in `python/python/lancedb/remote/table.py`.
-7. Add unit test in `python/tests/test_table.py`.
 
 TypeScript bindings changes:
 
@@ -99,13 +61,21 @@ TypeScript bindings changes:
 2. Run `npm run build` to generate TypeScript definitions.
 3. Add typescript method on abstract class `Table` in `nodejs/src/table.ts`.
 4. Add concrete method on `LocalTable` class in `nodejs/src/native_table.ts`.
-    * Note: despite the name, this class is also used for remote tables.
 5. Add test in `nodejs/__test__/table.test.ts`.
 6. Run `npm run docs` to generate TypeScript documentation.
 
-## Review Guidelines
+## Upstream tracking
 
-Please consider the following when reviewing code contributions.
+This fork tracks [lancedb/lancedb](https://github.com/lancedb/lancedb). When upstream
+releases a new version:
+
+* Review the release changelog and associated PRs.
+* Cherry-pick or merge changes that touch `rust/` and `nodejs/`.
+* Ignore changes isolated to `python/`, `java/`, or their docs.
+* Ignore changes isolated to `rust/lancedb/src/remote/` (remote support removed).
+* Update `[workspace.metadata.upstream].version` in `Cargo.toml` after syncing.
+
+## Review Guidelines
 
 ### Rust API design
 * Design public APIs so they can be evolved easily in the future without breaking
@@ -123,3 +93,6 @@ Please consider the following when reviewing code contributions.
 ### Documentation
 * New features must include updates to the rust documentation comments. Link to
   relevant structs and methods to increase the value of documentation.
+* **Every code change must include corresponding documentation updates.** After
+  modifying TypeScript bindings, always run `cd nodejs && npm run docs` and commit
+  the generated doc changes. CI will fail if generated docs are out of date.

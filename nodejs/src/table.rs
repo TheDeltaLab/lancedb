@@ -14,6 +14,7 @@ use lancedb::table::{
 use napi::bindgen_prelude::*;
 use napi::threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode};
 use napi_derive::napi;
+use tracing::Instrument;
 
 use crate::error::NapiErrorExt;
 use crate::index::Index;
@@ -73,14 +74,17 @@ impl Table {
 
     #[napi(
         catch_unwind,
-        ts_args_type = "buf: Buffer, mode: string, progressCallback?: (progress: WriteProgressInfo) => void"
+        ts_args_type = "buf: Buffer, mode: string, traceparent?: string | undefined | null, progressCallback?: (progress: WriteProgressInfo) => void"
     )]
     pub async fn add(
         &self,
         buf: Buffer,
         mode: String,
+        traceparent: Option<String>,
         progress_callback: Option<ProgressFn>,
     ) -> napi::Result<AddResult> {
+        let span = crate::tracing_util::napi_span!(traceparent, "lancedb.napi.table.add");
+
         let batches = ipc_file_to_batches(buf.to_vec())
             .map_err(|e| napi::Error::from_reason(format!("Failed to read IPC file: {}", e)))?;
         let batches = batches
@@ -105,38 +109,67 @@ impl Table {
         };
 
         if let Some(tsfn) = progress_callback {
+            let warned = std::sync::atomic::AtomicBool::new(false);
             op = op.progress(move |p| {
                 // NonBlocking: dispatch onto the JS event loop without
                 // blocking the writer thread.  With napi-rs's default
                 // unbounded queue, events are not dropped — a slow JS
                 // callback will just queue them.
-                tsfn.call(
+                let status = tsfn.call(
                     WriteProgressInfo::from(p),
                     ThreadsafeFunctionCallMode::NonBlocking,
                 );
+                if status != napi::Status::Ok
+                    && !warned.swap(true, std::sync::atomic::Ordering::Relaxed)
+                {
+                    tracing::warn!(
+                        "Progress callback TSFN call failed with status {:?}; \
+                         further failures will be silently dropped",
+                        status
+                    );
+                }
             });
         }
 
-        let res = op.execute().await.default_error()?;
+        let res = op.execute().instrument(span).await.default_error()?;
         Ok(res.into())
     }
 
     #[napi(catch_unwind)]
-    pub async fn count_rows(&self, filter: Option<String>) -> napi::Result<i64> {
+    pub async fn count_rows(
+        &self,
+        filter: Option<String>,
+        traceparent: Option<String>,
+    ) -> napi::Result<i64> {
+        let span = crate::tracing_util::napi_span!(traceparent, "lancedb.napi.table.count_rows");
+
         self.inner_ref()?
             .count_rows(filter)
+            .instrument(span)
             .await
             .map(|val| val as i64)
             .default_error()
     }
 
     #[napi(catch_unwind)]
-    pub async fn delete(&self, predicate: String) -> napi::Result<DeleteResult> {
-        let res = self.inner_ref()?.delete(&predicate).await.default_error()?;
+    pub async fn delete(
+        &self,
+        predicate: String,
+        traceparent: Option<String>,
+    ) -> napi::Result<DeleteResult> {
+        let span = crate::tracing_util::napi_span!(traceparent, "lancedb.napi.table.delete");
+
+        let res = self
+            .inner_ref()?
+            .delete(&predicate)
+            .instrument(span)
+            .await
+            .default_error()?;
         Ok(res.into())
     }
 
     #[napi(catch_unwind)]
+    #[allow(clippy::too_many_arguments)]
     pub async fn create_index(
         &self,
         index: Option<&Index>,
@@ -145,7 +178,10 @@ impl Table {
         wait_timeout_s: Option<i64>,
         name: Option<String>,
         train: Option<bool>,
+        traceparent: Option<String>,
     ) -> napi::Result<()> {
+        let span = crate::tracing_util::napi_span!(traceparent, "lancedb.napi.table.create_index");
+
         let lancedb_index = if let Some(index) = index {
             index.consume()?
         } else {
@@ -165,7 +201,7 @@ impl Table {
         if let Some(train) = train {
             builder = builder.train(train);
         }
-        builder.execute().await.default_error()
+        builder.execute().instrument(span).await.default_error()
     }
 
     #[napi(catch_unwind)]
@@ -228,7 +264,10 @@ impl Table {
         &self,
         only_if: Option<String>,
         columns: Vec<(String, String)>,
+        traceparent: Option<String>,
     ) -> napi::Result<UpdateResult> {
+        let span = crate::tracing_util::napi_span!(traceparent, "lancedb.napi.table.update");
+
         let mut op = self.inner_ref()?.update();
         if let Some(only_if) = only_if {
             op = op.only_if(only_if);
@@ -236,17 +275,25 @@ impl Table {
         for (column_name, value) in columns {
             op = op.column(column_name, value);
         }
-        let res = op.execute().await.default_error()?;
+        let res = op.execute().instrument(span).await.default_error()?;
         Ok(res.into())
     }
 
     #[napi(catch_unwind)]
-    pub fn query(&self) -> napi::Result<Query> {
+    pub fn query(&self, traceparent: Option<String>) -> napi::Result<Query> {
+        let span = crate::tracing_util::napi_span!(traceparent, "lancedb.napi.table.query");
+        let _guard = span.enter();
         Ok(Query::new(self.inner_ref()?.query()))
     }
 
     #[napi(catch_unwind)]
-    pub fn take_offsets(&self, offsets: Vec<i64>) -> napi::Result<TakeQuery> {
+    pub fn take_offsets(
+        &self,
+        offsets: Vec<i64>,
+        traceparent: Option<String>,
+    ) -> napi::Result<TakeQuery> {
+        let span = crate::tracing_util::napi_span!(traceparent, "lancedb.napi.table.take_offsets");
+        let _guard = span.enter();
         Ok(TakeQuery::new(
             self.inner_ref()?.take_offsets(
                 offsets
@@ -265,7 +312,13 @@ impl Table {
     }
 
     #[napi(catch_unwind)]
-    pub fn take_row_ids(&self, row_ids: Vec<BigInt>) -> napi::Result<TakeQuery> {
+    pub fn take_row_ids(
+        &self,
+        row_ids: Vec<BigInt>,
+        traceparent: Option<String>,
+    ) -> napi::Result<TakeQuery> {
+        let span = crate::tracing_util::napi_span!(traceparent, "lancedb.napi.table.take_row_ids");
+        let _guard = span.enter();
         Ok(TakeQuery::new(
             self.inner_ref()?.take_row_ids(
                 row_ids
@@ -290,8 +343,12 @@ impl Table {
     }
 
     #[napi(catch_unwind)]
-    pub fn vector_search(&self, vector: Float32Array) -> napi::Result<VectorQuery> {
-        self.query()?.nearest_to(vector)
+    pub fn vector_search(
+        &self,
+        vector: Float32Array,
+        traceparent: Option<String>,
+    ) -> napi::Result<VectorQuery> {
+        self.query(traceparent)?.nearest_to(vector)
     }
 
     #[napi(catch_unwind)]
@@ -436,24 +493,34 @@ impl Table {
     }
 
     #[napi(catch_unwind)]
-    pub async fn checkout(&self, version: i64) -> napi::Result<()> {
+    pub async fn checkout(&self, version: i64, traceparent: Option<String>) -> napi::Result<()> {
+        let span = crate::tracing_util::napi_span!(traceparent, "lancedb.napi.table.checkout");
         self.inner_ref()?
             .checkout(version as u64)
+            .instrument(span)
             .await
             .default_error()
     }
 
     #[napi(catch_unwind)]
-    pub async fn checkout_tag(&self, tag: String) -> napi::Result<()> {
+    pub async fn checkout_tag(&self, tag: String, traceparent: Option<String>) -> napi::Result<()> {
+        let span = crate::tracing_util::napi_span!(traceparent, "lancedb.napi.table.checkout_tag");
         self.inner_ref()?
             .checkout_tag(tag.as_str())
+            .instrument(span)
             .await
             .default_error()
     }
 
     #[napi(catch_unwind)]
-    pub async fn checkout_latest(&self) -> napi::Result<()> {
-        self.inner_ref()?.checkout_latest().await.default_error()
+    pub async fn checkout_latest(&self, traceparent: Option<String>) -> napi::Result<()> {
+        let span =
+            crate::tracing_util::napi_span!(traceparent, "lancedb.napi.table.checkout_latest");
+        self.inner_ref()?
+            .checkout_latest()
+            .instrument(span)
+            .await
+            .default_error()
     }
 
     #[napi(catch_unwind)]
@@ -476,6 +543,44 @@ impl Table {
                     .collect()
             })
             .default_error()
+    }
+
+    #[napi(catch_unwind)]
+    pub async fn get_version_info(&self, version: i64) -> napi::Result<Version> {
+        let info = self
+            .inner_ref()?
+            .get_version_info(version as u64)
+            .await
+            .default_error()?;
+        Ok(Version {
+            version: info.version as i64,
+            timestamp: info.timestamp.timestamp_micros(),
+            metadata: info
+                .metadata
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect(),
+        })
+    }
+
+    #[napi(catch_unwind)]
+    pub async fn get_version_by_time(&self, timestamp_micros: i64) -> napi::Result<Version> {
+        let timestamp: DateTime<Utc> = DateTime::from_timestamp_micros(timestamp_micros)
+            .ok_or_else(|| napi::Error::from_reason("Invalid timestamp".to_string()))?;
+        let info = self
+            .inner_ref()?
+            .get_version_by_time(timestamp)
+            .await
+            .default_error()?;
+        Ok(Version {
+            version: info.version as i64,
+            timestamp: info.timestamp.timestamp_micros(),
+            metadata: info
+                .metadata
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect(),
+        })
     }
 
     #[napi(catch_unwind)]
@@ -508,7 +613,11 @@ impl Table {
         &self,
         older_than_ms: Option<i64>,
         delete_unverified: Option<bool>,
+        error_if_tagged_old_versions: Option<bool>,
+        traceparent: Option<String>,
     ) -> napi::Result<OptimizeStats> {
+        let span = crate::tracing_util::napi_span!(traceparent, "lancedb.napi.table.optimize");
+
         let inner = self.inner_ref()?;
 
         let older_than = if let Some(ms) = older_than_ms {
@@ -523,43 +632,47 @@ impl Table {
             None
         };
 
-        let compaction_stats = inner
-            .optimize(OptimizeAction::Compact {
-                options: lancedb::table::CompactionOptions::default(),
-                remap_options: None,
+        async {
+            let compaction_stats = inner
+                .optimize(OptimizeAction::Compact {
+                    options: lancedb::table::CompactionOptions::default(),
+                    remap_options: None,
+                })
+                .await
+                .default_error()?
+                .compaction
+                .unwrap();
+            let prune_stats = inner
+                .optimize(OptimizeAction::Prune {
+                    older_than,
+                    delete_unverified,
+                    error_if_tagged_old_versions,
+                })
+                .await
+                .default_error()?
+                .prune
+                .unwrap();
+            inner
+                .optimize(lancedb::table::OptimizeAction::Index(
+                    OptimizeOptions::default(),
+                ))
+                .await
+                .default_error()?;
+            Ok(OptimizeStats {
+                compaction: CompactionStats {
+                    files_added: compaction_stats.files_added as i64,
+                    files_removed: compaction_stats.files_removed as i64,
+                    fragments_added: compaction_stats.fragments_added as i64,
+                    fragments_removed: compaction_stats.fragments_removed as i64,
+                },
+                prune: RemovalStats {
+                    bytes_removed: prune_stats.bytes_removed as i64,
+                    old_versions_removed: prune_stats.old_versions as i64,
+                },
             })
-            .await
-            .default_error()?
-            .compaction
-            .unwrap();
-        let prune_stats = inner
-            .optimize(OptimizeAction::Prune {
-                older_than,
-                delete_unverified,
-                error_if_tagged_old_versions: None,
-            })
-            .await
-            .default_error()?
-            .prune
-            .unwrap();
-        inner
-            .optimize(lancedb::table::OptimizeAction::Index(
-                OptimizeOptions::default(),
-            ))
-            .await
-            .default_error()?;
-        Ok(OptimizeStats {
-            compaction: CompactionStats {
-                files_added: compaction_stats.files_added as i64,
-                files_removed: compaction_stats.files_removed as i64,
-                fragments_added: compaction_stats.fragments_added as i64,
-                fragments_removed: compaction_stats.fragments_removed as i64,
-            },
-            prune: RemovalStats {
-                bytes_removed: prune_stats.bytes_removed as i64,
-                old_versions_removed: prune_stats.old_versions as i64,
-            },
-        })
+        }
+        .instrument(span)
+        .await
     }
 
     #[napi(catch_unwind)]
@@ -612,7 +725,7 @@ impl Table {
     pub async fn uses_v2_manifest_paths(&self) -> napi::Result<bool> {
         self.inner_ref()?
             .as_native()
-            .ok_or_else(|| napi::Error::from_reason("This cannot be run on a remote table"))?
+            .ok_or_else(|| napi::Error::from_reason("Table is not a native table"))?
             .uses_v2_manifest_paths()
             .await
             .default_error()
@@ -622,7 +735,7 @@ impl Table {
     pub async fn migrate_manifest_paths_v2(&self) -> napi::Result<()> {
         self.inner_ref()?
             .as_native()
-            .ok_or_else(|| napi::Error::from_reason("This cannot be run on a remote table"))?
+            .ok_or_else(|| napi::Error::from_reason("Table is not a native table"))?
             .migrate_manifest_paths_v2()
             .await
             .default_error()

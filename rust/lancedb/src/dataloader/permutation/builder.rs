@@ -168,7 +168,7 @@ impl PermutationBuilder {
             .unwrap_or_else(|_| DEFAULT_MEMORY_LIMIT.to_string())
             .parse::<usize>()
             .unwrap_or_else(|_| {
-                log::error!(
+                tracing::error!(
                     "Failed to parse LANCEDB_PERM_BUILDER_MEMORY_LIMIT, using default: {}",
                     DEFAULT_MEMORY_LIMIT
                 );

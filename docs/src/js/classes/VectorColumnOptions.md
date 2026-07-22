@@ -1,8 +1,8 @@
-[**@lancedb/lancedb**](../README.md) • **Docs**
+[**@delta-ai/lancedb**](../README.md) • **Docs**
 
 ***
 
-[@lancedb/lancedb](../globals.md) / VectorColumnOptions
+[@delta-ai/lancedb](../globals.md) / VectorColumnOptions
 
 # Class: VectorColumnOptions
 

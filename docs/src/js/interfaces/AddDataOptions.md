@@ -1,8 +1,8 @@
-[**@lancedb/lancedb**](../README.md) • **Docs**
+[**@delta-ai/lancedb**](../README.md) • **Docs**
 
 ***
 
-[@lancedb/lancedb](../globals.md) / AddDataOptions
+[@delta-ai/lancedb](../globals.md) / AddDataOptions
 
 # Interface: AddDataOptions
 
@@ -22,10 +22,10 @@ If "overwrite" then the new data will replace the existing data in the table.
 
 ***
 
-### progress()
+### progress()?
 
 ```ts
-progress: (progress) => void;
+optional progress: (progress) => void;
 ```
 
 Optional callback invoked periodically with write progress.

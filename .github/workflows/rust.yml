@@ -1,9 +1,6 @@
 name: Rust
 
 on:
-  push:
-    branches:
-      - main
   pull_request:
     paths:
       - Cargo.toml
@@ -56,8 +53,6 @@ jobs:
         run: cargo fmt --all -- --check
       - name: Run clippy
         run: cargo clippy --profile ci --workspace --tests --all-features -- -D warnings
-      - name: Run clippy (without remote feature)
-        run: cargo clippy --profile ci --workspace --tests -- -D warnings
 
   deny:
     # Supply-chain checks: advisories, licenses, banned crates, and source
@@ -102,7 +97,7 @@ jobs:
     # To build all features, we need more disk space than is available
     # on the free OSS github runner. This is mostly due to the the
     # sentence-transformers feature.
-    runs-on: ubuntu-2404-4x-x64
+    runs-on: ubuntu-24.04
     defaults:
       run:
         shell: bash
@@ -151,18 +146,10 @@ jobs:
         run: CARGO_ARGS="--profile ci" make -C ./lancedb feature-tests
       - name: Run examples
         run: cargo run  --profile ci --example simple --locked
-      - name: Run remote tests
-        # Running this requires access to secrets, so skip if this is
-        # a PR from a fork.
-        if: github.event_name != 'pull_request' || !github.event.pull_request.head.repo.fork
-        run: CARGO_ARGS="--profile ci" make -C ./lancedb remote-tests
 
   macos:
-    timeout-minutes: 60
-    strategy:
-      matrix:
-        mac-runner: ["macos-14", "macos-15"]
-    runs-on: "${{ matrix.mac-runner }}"
+    timeout-minutes: 30
+    runs-on: "macos-15"
     defaults:
       run:
         shell: bash
@@ -186,41 +173,13 @@ jobs:
             | grep -v s3-test | sort | uniq | paste -s -d "," -`
           cargo test --profile ci --features $ALL_FEATURES --locked
 
-  windows:
-    runs-on: windows-2022
-    strategy:
-      matrix:
-        target:
-          - x86_64-pc-windows-msvc
-          - aarch64-pc-windows-msvc
-    defaults:
-      run:
-        working-directory: rust/lancedb
-    steps:
-      - uses: actions/checkout@v6
-      - name: Set target
-        run: rustup target add ${{ matrix.target }}
-      - uses: Swatinem/rust-cache@v2
-      - name: Install Protoc v21.12
-        run: choco install --no-progress protoc
-      - name: Build
-        run: |
-          $env:VCPKG_ROOT = $env:VCPKG_INSTALLATION_ROOT
-          cargo build --profile ci --features aws,remote --tests --locked --target ${{ matrix.target }}
-      - name: Run tests
-        # Can only run tests when target matches host
-        if: ${{ matrix.target == 'x86_64-pc-windows-msvc' }}
-        run: |
-          $env:VCPKG_ROOT = $env:VCPKG_INSTALLATION_ROOT
-          cargo test --profile ci --features aws,remote --locked
-
   msrv:
     # Check the minimum supported Rust version
     name: MSRV Check - Rust v${{ matrix.msrv }}
     runs-on: ubuntu-24.04
     strategy:
       matrix:
-        msrv: ["1.91.0"] # This should match up with rust-version in Cargo.toml
+        msrv: ["1.91.1"] # This should match up with rust-version in Cargo.toml
     env:
       # Need up-to-date compilers for kernels
       CC: clang-18

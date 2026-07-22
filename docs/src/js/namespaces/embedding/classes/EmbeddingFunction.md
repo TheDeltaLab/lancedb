@@ -1,8 +1,8 @@
-[**@lancedb/lancedb**](../../../README.md) • **Docs**
+[**@delta-ai/lancedb**](../../../README.md) • **Docs**
 
 ***
 
-[@lancedb/lancedb](../../../globals.md) / [embedding](../README.md) / EmbeddingFunction
+[@delta-ai/lancedb](../../../globals.md) / [embedding](../README.md) / EmbeddingFunction
 
 # Class: `abstract` EmbeddingFunction&lt;T, M&gt;
 

@@ -1,8 +1,8 @@
-[**@lancedb/lancedb**](../README.md) • **Docs**
+[**@delta-ai/lancedb**](../README.md) • **Docs**
 
 ***
 
-[@lancedb/lancedb](../globals.md) / MergeBlocker
+[@delta-ai/lancedb](../globals.md) / MergeBlocker
 
 # Interface: MergeBlocker
 

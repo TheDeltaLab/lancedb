@@ -22,9 +22,6 @@ labels:
   title: "^ci(\\(.+\\))?!?:.*"
 - label: chore
   title: "^(chore|test|build|style)(\\(.+\\))?!?:.*"
-- label: Python
-  files:
-    - "^python\\/.*"
 - label: Rust
   files:
     - "^rust\\/.*"

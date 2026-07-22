@@ -1,15 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright The LanceDB Authors
 
+use std::collections::HashMap;
+use std::sync::Arc;
+
 use arrow::compute::{
     kernels::numeric::{div, sub},
     max, min,
 };
-use arrow_array::{Float32Array, RecordBatch, cast::downcast_array};
+use arrow_array::{Array, Float32Array, RecordBatch, UInt64Array, cast::downcast_array};
 use arrow_schema::{DataType, Field, Schema, SortOptions};
 use lance::dataset::ROW_ID;
 use lance_index::{scalar::inverted::SCORE_COL, vector::DIST_COL};
-use std::sync::Arc;
 
 use crate::error::{Error, Result};
 
@@ -171,6 +173,104 @@ pub fn normalize_scores(
     let results = RecordBatch::try_new(results.schema(), columns).unwrap();
 
     Ok(results)
+}
+
+/// Saved original (pre-normalization) score values keyed by row ID.
+///
+/// Before normalization the caller snapshots the raw `_distance` / `_score`
+/// column together with the corresponding `ROW_ID` column.  After reranking
+/// we use [`restore_original_scores`] to put the original values back,
+/// matching on row IDs (the reranker may have reordered or dropped rows).
+pub struct OriginalScores {
+    /// row_id → original score value (None when the row had a null score)
+    pub map: HashMap<u64, Option<f32>>,
+}
+
+impl OriginalScores {
+    /// Snapshot the score column from `batch` before it is normalised.
+    ///
+    /// Returns `None` when `batch` has zero rows (nothing to save).
+    pub fn save(batch: &RecordBatch, score_column: &str) -> Option<Self> {
+        if batch.num_rows() == 0 {
+            return None;
+        }
+        let row_ids = batch
+            .column_by_name(ROW_ID)?
+            .as_any()
+            .downcast_ref::<UInt64Array>()?;
+        let scores = batch
+            .column_by_name(score_column)?
+            .as_any()
+            .downcast_ref::<Float32Array>()?;
+        // Use `entry().or_insert()` so that for duplicate ROW_IDs the *first*
+        // occurrence wins, consistent with `dedup_by_row_id` which also keeps
+        // the first occurrence.  (`HashMap::collect` would keep the *last*.)
+        let mut map = HashMap::with_capacity(row_ids.len());
+        for (i, &id) in row_ids.values().iter().enumerate() {
+            map.entry(id).or_insert_with(|| {
+                if scores.is_null(i) {
+                    None
+                } else {
+                    Some(scores.value(i))
+                }
+            });
+        }
+        Some(Self { map })
+    }
+}
+
+/// Replace a score column in `results` with the original (pre-normalization)
+/// values saved in `original`, matching rows by `ROW_ID`.
+///
+/// Rows whose `ROW_ID` is not present in `original` (e.g. FTS-only rows when
+/// restoring `_distance`) keep their current value (typically null).
+pub fn restore_original_scores(
+    results: RecordBatch,
+    score_column: &str,
+    original: &OriginalScores,
+) -> Result<RecordBatch> {
+    let Some((col_idx, _)) = results.schema().column_with_name(score_column) else {
+        return Ok(results); // column not present, nothing to restore
+    };
+
+    let row_ids = results
+        .column_by_name(ROW_ID)
+        .ok_or_else(|| Error::Runtime {
+            message: format!(
+                "cannot restore scores: {} column missing from results",
+                ROW_ID
+            ),
+        })?
+        .as_any()
+        .downcast_ref::<UInt64Array>()
+        .ok_or_else(|| Error::Runtime {
+            message: format!("{} column is not UInt64", ROW_ID),
+        })?;
+
+    let current = results
+        .column(col_idx)
+        .as_any()
+        .downcast_ref::<Float32Array>()
+        .ok_or_else(|| Error::Runtime {
+            message: format!("{} column is not Float32", score_column),
+        })?;
+    let restored = Float32Array::from_iter(row_ids.values().iter().enumerate().map(|(i, &id)| {
+        match original.map.get(&id) {
+            Some(val) => *val, // original value (Some(f32) or None/null)
+            None => {
+                // row not in original set – keep existing value
+                if current.is_null(i) {
+                    None
+                } else {
+                    Some(current.value(i))
+                }
+            }
+        }
+    }));
+
+    let mut columns = results.columns().to_vec();
+    columns[col_idx] = Arc::new(restored);
+    Ok(RecordBatch::try_new(results.schema(), columns)?)
 }
 
 #[cfg(test)]

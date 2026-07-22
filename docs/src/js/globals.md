@@ -1,8 +1,8 @@
-[**@lancedb/lancedb**](README.md) • **Docs**
+[**@delta-ai/lancedb**](README.md) • **Docs**
 
 ***
 
-# @lancedb/lancedb
+# @delta-ai/lancedb
 
 ## Namespaces
 
@@ -12,7 +12,6 @@
 ## Enumerations
 
 - [FullTextQueryType](enumerations/FullTextQueryType.md)
-- [OAuthFlowType](enumerations/OAuthFlowType.md)
 - [Occur](enumerations/Occur.md)
 - [Operator](enumerations/Operator.md)
 
@@ -23,21 +22,17 @@
 - [BranchContents](classes/BranchContents.md)
 - [Branches](classes/Branches.md)
 - [Connection](classes/Connection.md)
-- [HeaderProvider](classes/HeaderProvider.md)
 - [Index](classes/Index.md)
 - [MakeArrowTableOptions](classes/MakeArrowTableOptions.md)
 - [MatchQuery](classes/MatchQuery.md)
 - [MergeInsertBuilder](classes/MergeInsertBuilder.md)
 - [MultiMatchQuery](classes/MultiMatchQuery.md)
-- [NativeJsHeaderProvider](classes/NativeJsHeaderProvider.md)
-- [OAuthHeaderProvider](classes/OAuthHeaderProvider.md)
 - [PermutationBuilder](classes/PermutationBuilder.md)
 - [PhraseQuery](classes/PhraseQuery.md)
 - [Query](classes/Query.md)
 - [QueryBase](classes/QueryBase.md)
 - [Scannable](classes/Scannable.md)
 - [Session](classes/Session.md)
-- [StaticHeaderProvider](classes/StaticHeaderProvider.md)
 - [Table](classes/Table.md)
 - [TagContents](classes/TagContents.md)
 - [Tags](classes/Tags.md)
@@ -57,7 +52,6 @@
 - [BranchDiff](interfaces/BranchDiff.md)
 - [BranchIndexSummary](interfaces/BranchIndexSummary.md)
 - [BranchRowCountSummary](interfaces/BranchRowCountSummary.md)
-- [ClientConfig](interfaces/ClientConfig.md)
 - [ColumnAlteration](interfaces/ColumnAlteration.md)
 - [ColumnOrdering](interfaces/ColumnOrdering.md)
 - [CompactionStats](interfaces/CompactionStats.md)
@@ -95,16 +89,14 @@
 - [MergeBranchResult](interfaces/MergeBranchResult.md)
 - [MergePreview](interfaces/MergePreview.md)
 - [MergeResult](interfaces/MergeResult.md)
-- [NativeOAuthConfig](interfaces/NativeOAuthConfig.md)
-- [OAuthConfig](interfaces/OAuthConfig.md)
 - [OpenTableOptions](interfaces/OpenTableOptions.md)
 - [OptimizeOptions](interfaces/OptimizeOptions.md)
 - [OptimizeStats](interfaces/OptimizeStats.md)
+- [ProfilingOptions](interfaces/ProfilingOptions.md)
 - [QueryExecutionOptions](interfaces/QueryExecutionOptions.md)
 - [RemovalStats](interfaces/RemovalStats.md)
 - [RenameTableOptions](interfaces/RenameTableOptions.md)
 - [RestNamespaceConfig](interfaces/RestNamespaceConfig.md)
-- [RetryConfig](interfaces/RetryConfig.md)
 - [ScannableOptions](interfaces/ScannableOptions.md)
 - [ShuffleOptions](interfaces/ShuffleOptions.md)
 - [SplitCalculatedOptions](interfaces/SplitCalculatedOptions.md)
@@ -113,9 +105,6 @@
 - [SplitSequentialOptions](interfaces/SplitSequentialOptions.md)
 - [TableNamesOptions](interfaces/TableNamesOptions.md)
 - [TableStatistics](interfaces/TableStatistics.md)
-- [TimeoutConfig](interfaces/TimeoutConfig.md)
-- [TlsConfig](interfaces/TlsConfig.md)
-- [TokenResponse](interfaces/TokenResponse.md)
 - [TokenizeOptions](interfaces/TokenizeOptions.md)
 - [UpdateFieldMetadataResult](interfaces/UpdateFieldMetadataResult.md)
 - [UpdateOptions](interfaces/UpdateOptions.md)
@@ -144,8 +133,10 @@
 - [RecordBatchIterator](functions/RecordBatchIterator.md)
 - [connect](functions/connect.md)
 - [connectNamespace](functions/connectNamespace.md)
+- [initProfiling](functions/initProfiling.md)
 - [instrumentLanceDbMetrics](functions/instrumentLanceDbMetrics.md)
 - [makeArrowTable](functions/makeArrowTable.md)
 - [packBits](functions/packBits.md)
 - [permutationBuilder](functions/permutationBuilder.md)
 - [tokenize](functions/tokenize.md)
+- [withTraceparent](functions/withTraceparent.md)

@@ -29,6 +29,7 @@ use lancedb::query::TakeQuery as LanceDbTakeQuery;
 use lancedb::query::{ColumnOrdering as LanceDbColumnOrdering, VectorQuery as LanceDbVectorQuery};
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
+use tracing::Instrument;
 
 #[napi(object)]
 pub struct ColumnOrdering {
@@ -191,7 +192,11 @@ impl Query {
         &self,
         max_batch_length: Option<u32>,
         timeout_ms: Option<u32>,
+        traceparent: Option<String>,
     ) -> napi::Result<RecordBatchIterator> {
+        let stream_span = crate::tracing_util::napi_span!(traceparent, "lancedb.napi.query.stream");
+        let execute_span = tracing::info_span!(parent: &stream_span, "lancedb.napi.query.execute");
+
         let mut execution_opts = QueryExecutionOptions::default();
         if let Some(max_batch_length) = max_batch_length {
             execution_opts.max_batch_length = max_batch_length;
@@ -202,6 +207,7 @@ impl Query {
         let inner_stream = self
             .inner
             .execute_with_options(execution_opts)
+            .instrument(execute_span)
             .await
             .map_err(|e| {
                 napi::Error::from_reason(format!(
@@ -209,7 +215,7 @@ impl Query {
                     convert_error(&e)
                 ))
             })?;
-        Ok(RecordBatchIterator::new(inner_stream))
+        Ok(RecordBatchIterator::new(inner_stream, stream_span))
     }
 
     #[napi]
@@ -407,7 +413,13 @@ impl VectorQuery {
         &self,
         max_batch_length: Option<u32>,
         timeout_ms: Option<u32>,
+        traceparent: Option<String>,
     ) -> napi::Result<RecordBatchIterator> {
+        let stream_span =
+            crate::tracing_util::napi_span!(traceparent, "lancedb.napi.vector_query.stream");
+        let execute_span =
+            tracing::info_span!(parent: &stream_span, "lancedb.napi.vector_query.execute");
+
         let mut execution_opts = QueryExecutionOptions::default();
         if let Some(max_batch_length) = max_batch_length {
             execution_opts.max_batch_length = max_batch_length;
@@ -418,6 +430,7 @@ impl VectorQuery {
         let inner_stream = self
             .inner
             .execute_with_options(execution_opts)
+            .instrument(execute_span)
             .await
             .map_err(|e| {
                 napi::Error::from_reason(format!(
@@ -425,7 +438,7 @@ impl VectorQuery {
                     convert_error(&e)
                 ))
             })?;
-        Ok(RecordBatchIterator::new(inner_stream))
+        Ok(RecordBatchIterator::new(inner_stream, stream_span))
     }
 
     #[napi]
@@ -490,7 +503,13 @@ impl TakeQuery {
         &self,
         max_batch_length: Option<u32>,
         timeout_ms: Option<u32>,
+        traceparent: Option<String>,
     ) -> napi::Result<RecordBatchIterator> {
+        let stream_span =
+            crate::tracing_util::napi_span!(traceparent, "lancedb.napi.take_query.stream");
+        let execute_span =
+            tracing::info_span!(parent: &stream_span, "lancedb.napi.take_query.execute");
+
         let mut execution_opts = QueryExecutionOptions::default();
         if let Some(max_batch_length) = max_batch_length {
             execution_opts.max_batch_length = max_batch_length;
@@ -501,6 +520,7 @@ impl TakeQuery {
         let inner_stream = self
             .inner
             .execute_with_options(execution_opts)
+            .instrument(execute_span)
             .await
             .map_err(|e| {
                 napi::Error::from_reason(format!(
@@ -508,7 +528,7 @@ impl TakeQuery {
                     convert_error(&e)
                 ))
             })?;
-        Ok(RecordBatchIterator::new(inner_stream))
+        Ok(RecordBatchIterator::new(inner_stream, stream_span))
     }
 
     #[napi]

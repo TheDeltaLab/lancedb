@@ -1,8 +1,8 @@
-[**@lancedb/lancedb**](../README.md) • **Docs**
+[**@delta-ai/lancedb**](../README.md) • **Docs**
 
 ***
 
-[@lancedb/lancedb](../globals.md) / IntoVector
+[@delta-ai/lancedb](../globals.md) / IntoVector
 
 # Type Alias: IntoVector
 

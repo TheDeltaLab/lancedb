@@ -1,8 +1,8 @@
-[**@lancedb/lancedb**](../README.md) • **Docs**
+[**@delta-ai/lancedb**](../README.md) • **Docs**
 
 ***
 
-[@lancedb/lancedb](../globals.md) / CreateNamespaceResponse
+[@delta-ai/lancedb](../globals.md) / CreateNamespaceResponse
 
 # Interface: CreateNamespaceResponse
 

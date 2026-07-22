@@ -1,8 +1,8 @@
-[**@lancedb/lancedb**](../../README.md) • **Docs**
+[**@delta-ai/lancedb**](../../README.md) • **Docs**
 
 ***
 
-[@lancedb/lancedb](../../globals.md) / rerankers
+[@delta-ai/lancedb](../../globals.md) / rerankers
 
 # rerankers
 
@@ -14,4 +14,5 @@
 
 ### Interfaces
 
+- [RRFRerankerOptions](interfaces/RRFRerankerOptions.md)
 - [Reranker](interfaces/Reranker.md)

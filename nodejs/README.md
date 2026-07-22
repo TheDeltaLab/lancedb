@@ -5,7 +5,7 @@ A JavaScript library for [LanceDB](https://github.com/lancedb/lancedb).
 ## Installation
 
 ```bash
-npm install @lancedb/lancedb
+npm install @delta-ai/lancedb
 ```
 
 This will download the appropriate native library for your platform. We currently
@@ -20,7 +20,7 @@ support:
 ### Basic Example
 
 ```javascript
-import * as lancedb from "@lancedb/lancedb";
+import * as lancedb from "@delta-ai/lancedb";
 const db = await lancedb.connect("data/sample-lancedb");
 const table = await db.createTable("my_table", [
   { id: 1, vector: [0.1, 1.0], item: "foo", price: 10.0 },

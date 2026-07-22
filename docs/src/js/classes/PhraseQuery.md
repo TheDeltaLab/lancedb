@@ -1,8 +1,8 @@
-[**@lancedb/lancedb**](../README.md) • **Docs**
+[**@delta-ai/lancedb**](../README.md) • **Docs**
 
 ***
 
-[@lancedb/lancedb](../globals.md) / PhraseQuery
+[@delta-ai/lancedb](../globals.md) / PhraseQuery
 
 # Class: PhraseQuery
 

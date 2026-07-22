@@ -1,8 +1,8 @@
-[**@lancedb/lancedb**](../README.md) • **Docs**
+[**@delta-ai/lancedb**](../README.md) • **Docs**
 
 ***
 
-[@lancedb/lancedb](../globals.md) / FieldMetadataUpdate
+[@delta-ai/lancedb](../globals.md) / FieldMetadataUpdate
 
 # Interface: FieldMetadataUpdate
 

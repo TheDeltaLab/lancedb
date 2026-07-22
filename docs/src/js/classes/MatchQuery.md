@@ -1,8 +1,8 @@
-[**@lancedb/lancedb**](../README.md) • **Docs**
+[**@delta-ai/lancedb**](../README.md) • **Docs**
 
 ***
 
-[@lancedb/lancedb](../globals.md) / MatchQuery
+[@delta-ai/lancedb](../globals.md) / MatchQuery
 
 # Class: MatchQuery
 

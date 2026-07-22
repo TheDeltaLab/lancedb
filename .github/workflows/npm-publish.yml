@@ -10,8 +10,6 @@ permissions:
 
 on:
   push:
-    branches:
-      - main
     tags:
       - "v*"
   pull_request:
@@ -102,30 +100,6 @@ jobs:
             host: macos-latest
             features: fp16kernels
             pre_build: brew install protobuf
-          - target: x86_64-pc-windows-msvc
-            host: windows-2025-8x-x64
-            features: ","
-            pre_build: |-
-              choco install --no-progress protoc ninja nasm
-              tail -n 1000 /c/ProgramData/chocolatey/logs/chocolatey.log
-              # There is an issue where choco doesn't add nasm to the path
-              export PATH="$PATH:/c/Program Files/NASM"
-              nasm -v
-              # Fat LTO of the cdylib is single-threaded and the peak-memory
-              # step of the build, and had started hitting rustc-LLVM OOM on the
-              # Windows runners. ThinLTO parallelizes it across the runner's
-              # cores and keeps peak memory well under the limit.
-              export CARGO_PROFILE_RELEASE_LTO=thin
-              export CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16
-          - target: aarch64-pc-windows-msvc
-            host: windows-2025-8x-x64
-            features: ","
-            pre_build: |-
-                choco install --no-progress protoc
-                rustup target add aarch64-pc-windows-msvc
-                # See ThinLTO note on the x86_64-pc-windows-msvc target above.
-                export CARGO_PROFILE_RELEASE_LTO=thin
-                export CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16
           - target: x86_64-unknown-linux-gnu
             host: ubuntu-latest
             features: fp16kernels
@@ -142,36 +116,13 @@ jobs:
               export TARGET_CC=clang TARGET_CXX=clang++
           - target: x86_64-unknown-linux-musl
             # This one seems to need some extra memory
-            host: ubuntu-2404-8x-x64
+            host: ubuntu-24.04
             features: fp16kernels
             pre_build: |-
               set -e &&
               sudo apt-get update &&
               sudo apt-get install -y protobuf-compiler pkg-config &&
               rustup target add x86_64-unknown-linux-musl &&
-              export EXTRA_ARGS="-x"
-          - target: aarch64-unknown-linux-gnu
-            host: ubuntu-2404-8x-x64
-            # https://github.com/napi-rs/napi-rs/blob/main/debian-aarch64.Dockerfile
-            docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-debian-aarch64
-            features: "fp16kernels"
-            pre_build: |-
-              set -e &&
-              apt-get update &&
-              apt-get install -y protobuf-compiler pkg-config &&
-              export TARGET_CC=clang TARGET_CXX=clang++ &&
-              # The manylinux2014 sysroot has glibc 2.17 headers which lack
-              # AT_HWCAP2 (added in Linux 3.17). Define it for aws-lc-sys.
-              export CFLAGS="$CFLAGS -DAT_HWCAP2=26" &&
-              rustup target add aarch64-unknown-linux-gnu
-          - target: aarch64-unknown-linux-musl
-            host: ubuntu-2404-8x-x64
-            features: ","
-            pre_build: |-
-              set -e &&
-              sudo apt-get update &&
-              sudo apt-get install -y protobuf-compiler &&
-              rustup target add aarch64-unknown-linux-musl &&
               export EXTRA_ARGS="-x"
     name: build - ${{ matrix.settings.target }}
     runs-on: ${{ matrix.settings.host }}
@@ -240,6 +191,7 @@ jobs:
               --strip \
               --output-dir dist/
       - name: Build
+        if: ${{ !matrix.settings.docker }}
         run: |
           ${{ matrix.settings.pre_build }}
           npx napi build --platform --release \
@@ -250,7 +202,6 @@ jobs:
               --strip \
               $EXTRA_ARGS \
               --output-dir dist/
-        if: ${{ !matrix.settings.docker }}
         shell: bash
       - name: Upload artifact
         uses: actions/upload-artifact@v7
@@ -279,15 +230,10 @@ jobs:
       fail-fast: false
       matrix:
         settings:
-          # TODO: Get tests passing on Windows (failing from test tmpdir issue)
-          # - host: windows-latest
-          #   target: x86_64-pc-windows-msvc
           - host: macos-latest
             target: aarch64-apple-darwin
           - target: x86_64-unknown-linux-gnu
             host: ubuntu-latest
-          - target: aarch64-unknown-linux-gnu
-            host: ubuntu-2404-8x-arm64
         node:
           - '20'
     runs-on: ${{ matrix.settings.host }}
@@ -387,11 +333,18 @@ jobs:
       - name: Publish
         env:
           DRY_RUN: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           npm config set provenance true
           ARGS="--access public"
           if [[ $DRY_RUN == "true" ]]; then
-            ARGS="$ARGS --dry-run"
+            # Use npm pack instead of npm publish --dry-run to avoid
+            # triggering prepublishOnly (napi prepublish), which creates
+            # a real GitHub Release even during dry-run.
+            echo "Dry run: running npm pack to verify package contents"
+            npm pack $ARGS
+            exit 0
           fi
           VERSION=$(node -p "require('./package.json').version")
           if [[ $VERSION == *-* ]]; then

@@ -1,8 +1,8 @@
-[**@lancedb/lancedb**](../README.md) • **Docs**
+[**@delta-ai/lancedb**](../README.md) • **Docs**
 
 ***
 
-[@lancedb/lancedb](../globals.md) / IntoSql
+[@delta-ai/lancedb](../globals.md) / IntoSql
 
 # Type Alias: IntoSql
 

@@ -13,8 +13,8 @@ use arrow_cast::{can_cast_types, cast};
 use arrow_schema::{ArrowError, DataType, Field, Schema};
 use half::f16;
 use lance_arrow::{DataTypeExt, FixedSizeListArrayExt};
-use log::warn;
 use num_traits::cast::AsPrimitive;
+use tracing::warn;
 
 use super::inspect::infer_dimension;
 use crate::error::Result;

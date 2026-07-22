@@ -91,15 +91,16 @@ impl std::fmt::Debug for WriteProgressTracker {
 
 pub(crate) struct WriteProgressTracker {
     rows_and_bytes: std::sync::Mutex<(usize, usize)>,
-    /// Wire bytes tracked separately by the insert layer. When set (> 0),
-    /// this takes precedence over the in-memory bytes from `rows_and_bytes`.
-    wire_bytes: AtomicUsize,
     active_tasks: Arc<AtomicUsize>,
     total_tasks: AtomicUsize,
     start: Instant,
     /// Known total rows from the input source, if available.
     total_rows: Option<usize>,
     callback: ProgressCallback,
+    /// Wire bytes reported by the insert layer (IPC-encoded size for remote
+    /// writes, or bytes handed to Lance's local writer). When non-zero, these
+    /// take precedence over in-memory Arrow bytes.
+    wire_bytes: AtomicUsize,
 }
 
 impl WriteProgressTracker {

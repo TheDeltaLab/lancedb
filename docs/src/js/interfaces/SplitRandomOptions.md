@@ -1,8 +1,8 @@
-[**@lancedb/lancedb**](../README.md) • **Docs**
+[**@delta-ai/lancedb**](../README.md) • **Docs**
 
 ***
 
-[@lancedb/lancedb](../globals.md) / SplitRandomOptions
+[@delta-ai/lancedb](../globals.md) / SplitRandomOptions
 
 # Interface: SplitRandomOptions
 

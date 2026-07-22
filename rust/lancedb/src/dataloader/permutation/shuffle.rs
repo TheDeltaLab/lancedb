@@ -113,7 +113,7 @@ impl Shuffler {
         let batches = data.try_collect::<Vec<_>>().await?;
         let batch = concat_batches(&schema, &batches)?;
         let shuffled = Self::shuffle_batch(&batch, &mut rng, self.config.clump_size.unwrap_or(1))?;
-        log::debug!("Shuffle job {}: in-memory shuffle complete", self.id);
+        tracing::debug!("Shuffle job {}: in-memory shuffle complete", self.id);
         Ok(Box::pin(SimpleRecordBatchStream::new(
             futures::stream::once(async move { Ok(shuffled) }),
             schema,
@@ -269,7 +269,7 @@ impl Shuffler {
         data: SendableRecordBatchStream,
         num_rows: u64,
     ) -> Result<SendableRecordBatchStream> {
-        log::debug!(
+        tracing::debug!(
             "Shuffle job {}: shuffling {} rows and {} columns",
             self.id,
             num_rows,

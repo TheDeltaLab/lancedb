@@ -33,11 +33,9 @@ git fetch upstream
 
 ## Setting up your development environment
 
-We have development environments for Python, Typescript, and Java. Each environment has its own setup instructions.
+We have development environments for Rust and Typescript.
 
-* [Python](python/CONTRIBUTING.md)
 * [Typescript](nodejs/CONTRIBUTING.md)
-<!-- TODO: add Java contributing guide -->
 * [Documentation](docs/README.md)
 
 
@@ -63,14 +61,11 @@ For the best chance of having your pull request accepted, please follow these gu
 
 ## Project structure
 
-The core library is written in Rust. The Python, Typescript, and Java libraries
-are wrappers around the Rust library.
+The core library is written in Rust. The Typescript library is a wrapper around
+the Rust library.
 
-* `src/lancedb`: Rust library source code
-* `python`: Python package source code
+* `rust/lancedb`: Rust library source code
 * `nodejs`: Typescript package source code
-* `node`: **Deprecated** Typescript package source code
-* `java`: Java package source code
 * `docs`: Documentation source code
 
 ## Release process

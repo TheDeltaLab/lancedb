@@ -1,8 +1,8 @@
-[**@lancedb/lancedb**](../README.md) • **Docs**
+[**@delta-ai/lancedb**](../README.md) • **Docs**
 
 ***
 
-[@lancedb/lancedb](../globals.md) / tokenize
+[@delta-ai/lancedb](../globals.md) / tokenize
 
 # Function: tokenize()
 

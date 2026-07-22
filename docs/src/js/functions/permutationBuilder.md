@@ -1,8 +1,8 @@
-[**@lancedb/lancedb**](../README.md) • **Docs**
+[**@delta-ai/lancedb**](../README.md) • **Docs**
 
 ***
 
-[@lancedb/lancedb](../globals.md) / permutationBuilder
+[@delta-ai/lancedb](../globals.md) / permutationBuilder
 
 # Function: permutationBuilder()
 

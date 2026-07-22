@@ -538,7 +538,7 @@ impl ListingDatabase {
                 let table_base_uri = if let Some(store) = engine {
                     static WARN_ONCE: std::sync::Once = std::sync::Once::new();
                     WARN_ONCE.call_once(|| {
-                        log::warn!("Specifying engine is not a publicly supported feature in lancedb yet. THE API WILL CHANGE");
+                        tracing::warn!("Specifying engine is not a publicly supported feature in lancedb yet. THE API WILL CHANGE");
                     });
                     let old_scheme = url.scheme().to_string();
                     let new_scheme = format!("{}+{}", old_scheme, store);
@@ -1306,8 +1306,6 @@ mod tests {
 
         let request = ConnectRequest {
             uri: uri.to_string(),
-            #[cfg(feature = "remote")]
-            client_config: Default::default(),
             options: Default::default(),
             namespace_client_properties: Default::default(),
             manifest_enabled: false,
@@ -1329,8 +1327,6 @@ mod tests {
 
         let request = ConnectRequest {
             uri: uri.to_string(),
-            #[cfg(feature = "remote")]
-            client_config: Default::default(),
             options: Default::default(),
             namespace_client_properties: Default::default(),
             manifest_enabled: false,
@@ -1495,8 +1491,6 @@ mod tests {
 
         let request = ConnectRequest {
             uri: uri.to_string(),
-            #[cfg(feature = "remote")]
-            client_config: Default::default(),
             options: options.clone(),
             namespace_client_properties: Default::default(),
             manifest_enabled: false,
@@ -2031,8 +2025,6 @@ mod tests {
 
         let request = ConnectRequest {
             uri: uri.to_string(),
-            #[cfg(feature = "remote")]
-            client_config: Default::default(),
             options,
             namespace_client_properties: Default::default(),
             manifest_enabled: false,
@@ -2138,8 +2130,6 @@ mod tests {
 
         let request = ConnectRequest {
             uri: uri.to_string(),
-            #[cfg(feature = "remote")]
-            client_config: Default::default(),
             options,
             namespace_client_properties: Default::default(),
             manifest_enabled: false,
@@ -2211,8 +2201,6 @@ mod tests {
 
         let request = ConnectRequest {
             uri: uri.to_string(),
-            #[cfg(feature = "remote")]
-            client_config: Default::default(),
             options,
             namespace_client_properties: Default::default(),
             manifest_enabled: false,
@@ -2391,8 +2379,6 @@ mod tests {
 
         let request = ConnectRequest {
             uri: uri.clone(),
-            #[cfg(feature = "remote")]
-            client_config: Default::default(),
             options: Default::default(),
             namespace_client_properties: Default::default(),
             manifest_enabled: false,
@@ -2420,8 +2406,6 @@ mod tests {
         let with_query = format!("{}?foo=bar", uri);
         let request_with_query = ConnectRequest {
             uri: with_query,
-            #[cfg(feature = "remote")]
-            client_config: Default::default(),
             options: Default::default(),
             namespace_client_properties: Default::default(),
             manifest_enabled: false,
@@ -2554,8 +2538,6 @@ mod tests {
 
         let request = ConnectRequest {
             uri: uri.to_string(),
-            #[cfg(feature = "remote")]
-            client_config: Default::default(),
             options: Default::default(),
             namespace_client_properties,
             manifest_enabled: false,

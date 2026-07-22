@@ -1,9 +1,6 @@
 name: NodeJS (NAPI)
 
 on:
-  push:
-    branches:
-      - main
   pull_request:
     paths:
       - Cargo.toml
@@ -146,15 +143,24 @@ jobs:
       # while the matrix tests on older Node versions.
       run: npx jest --verbose
     - name: Test examples
-      working-directory: ./
+      working-directory: nodejs/examples
       env:
         OPENAI_API_KEY: test
         OPENAI_BASE_URL: http://0.0.0.0:8000
-        NODE_OPTIONS: "--experimental-vm-modules"
       run: |
-        python ci/mock_openai.py &
-        cd nodejs/examples
-        npx jest --testEnvironment jest-environment-node-single-context --verbose
+        node ../../ci/mock_openai.js &
+        npm test
+    - name: Check docs
+      run: |
+        # Dependencies already installed in the Build step above; just run
+        # typedoc directly (npm ci removed since we migrated to pnpm).
+        set -e
+        npm run docs
+        if ! git diff --exit-code -- ../ ':(exclude)Cargo.lock'; then
+          echo "Docs need to be updated"
+          echo "Run 'npm run docs', fix any warnings, and commit the changes."
+          exit 1
+        fi
   macos:
     timeout-minutes: 30
     # macos-15 ships a newer linker; the older macos-14 linker fails to insert
@@ -193,5 +199,7 @@ jobs:
         pnpm build:debug --profile ci
         pnpm tsc
     - name: Test
+      env:
+        NODE_OPTIONS: "--experimental-vm-modules"
       run: |
         pnpm test
