@@ -1,27 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
+[[ $# -eq 0 ]] || { echo "Usage: $0 (updates locks without committing or tagging)" >&2; exit 1; }
 
-AMEND=false
-
-for arg in "$@"; do
-  if [[ "$arg" == "--amend" ]]; then
-    AMEND=true
-  fi
-done
-
-# This updates the lockfile without building
-cargo metadata --quiet > /dev/null
-
-pushd nodejs || exit 1
-npm install --package-lock-only --silent
-popd
-
-if git diff --quiet --exit-code; then
-  echo "No lockfile changes to commit; skipping amend."
-elif $AMEND; then
-  git add Cargo.lock nodejs/package-lock.json
-  git commit --amend --no-edit
-else
-  git add Cargo.lock nodejs/package-lock.json
-  git commit -m "Update lockfiles"
-fi
+# Update workspace versions while retaining other locked dependencies.
+cargo update --workspace
+(
+  cd nodejs
+  pnpm install --lockfile-only --ignore-scripts --no-frozen-lockfile
+  pnpm install --lockfile-only --ignore-scripts --frozen-lockfile
+)

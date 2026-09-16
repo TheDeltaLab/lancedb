@@ -54,21 +54,13 @@ jobs:
           if [[ $VERSION =~ beta ]]; then
             echo "This is a beta release"
 
-            # Get last release (that is not this one)
-            FROM_TAG=$(git tag --sort='version:refname' \
-              | grep ^v \
-              | grep -vF "$TAG" \
-              | python ci/semver_sort.py v \
-              | tail -n 1)
+            # Follow this fork's release history, not globally sorted upstream tags.
+            FROM_TAG=$(git describe --first-parent --tags --match 'v[0-9]*' \
+              --exclude '*-python' --exclude '*-nodejs' --abbrev=0 "$TAG^")
           else
             echo "This is a stable release"
-            # Get last stable tag (ignore betas)
-            FROM_TAG=$(git tag --sort='version:refname' \
-              | grep ^v \
-              | grep -vF "$TAG" \
-              | grep -v beta \
-              | python ci/semver_sort.py v \
-              | tail -n 1)
+            FROM_TAG=$(git describe --first-parent --tags --match 'v[0-9]*' \
+              --exclude '*-*' --abbrev=0 "$TAG^")
           fi
           echo "Found from tag $FROM_TAG"
           echo "from_tag=$FROM_TAG" >> $GITHUB_OUTPUT
@@ -84,7 +76,7 @@ jobs:
       - name: Create GH release
         uses: softprops/action-gh-release@v2
         with:
-          prerelease: ${{ contains('beta', github.ref) }}
+          prerelease: ${{ contains(github.ref, '-beta.') }}
           tag_name: ${{ steps.extract_version.outputs.tag }}
           token: ${{ secrets.GITHUB_TOKEN }}
           generate_release_notes: false

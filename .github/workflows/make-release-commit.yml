@@ -12,7 +12,7 @@ on:
       dry_run:
         description: 'Dry run (create the local commit/tags but do not push it)'
         required: true
-        default: false
+        default: true
         type: boolean
       type:
         description: 'What kind of release is this?'
@@ -28,9 +28,13 @@ on:
         default: false
         type: boolean
 
+concurrency:
+  group: create-release
+  cancel-in-progress: false
+
 jobs:
   make-release:
-    # Creates tag and GH release. The GH release will trigger the build and release jobs.
+    # The final tag push triggers native builds and publishing.
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -45,6 +49,18 @@ jobs:
           # trigger any workflows watching for new tags. See:
           # https://docs.github.com/en/actions/using-workflows/triggering-a-workflow#triggering-a-workflow-from-a-workflow
           token: ${{ secrets.LANCEDB_RELEASE_TOKEN }}
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11.1.1
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - name: Require a branch checkout
+        run: test "${{ github.ref_type }}" = branch
       - name: Validate Lance dependency is at stable version
         if: ${{ inputs.type == 'stable' }}
         run: python ci/validate_stable_lance.py
@@ -57,14 +73,12 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          pip install bump-my-version PyGithub packaging
+          pip install bump-my-version==1.5.1 packaging==26.3
           bash ci/bump_version.sh ${{ inputs.type }} ${{ inputs.bump-minor }} v
-          bash ci/update_lockfiles.sh --amend
-      - name: Push new version tag
+      - name: Push release commit and its tag atomically
         if: ${{ !inputs.dry_run }}
-        uses: ad-m/github-push-action@881a6320fdb16eb5318c5054f31c218aec2b324c # v1.3.0
-        with:
-          # Need to use PAT here too to trigger next workflow. See comment above.
-          github_token: ${{ secrets.LANCEDB_RELEASE_TOKEN }}
-          branch: ${{ github.ref }}
-          tags: true
+        env:
+          RELEASE_BRANCH: ${{ github.ref_name }}
+        run: |
+          RELEASE_TAG=$(git describe --tags --exact-match HEAD)
+          git push --atomic origin "HEAD:refs/heads/$RELEASE_BRANCH" "refs/tags/$RELEASE_TAG"

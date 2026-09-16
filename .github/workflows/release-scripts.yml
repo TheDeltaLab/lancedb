@@ -1,0 +1,33 @@
+name: Release scripts
+on:
+  pull_request:
+    paths:
+      - ci/bump_version.sh
+      - ci/update_lockfiles.sh
+      - ci/validate_stable_lance.py
+      - ci/check_breaking_changes.py
+      - ci/semver_sort.py
+      - ci/test_release.py
+      - .bumpversion.toml
+      - .github/workflows/make-release-commit.yml
+      - .github/workflows/npm-publish.yml
+      - .github/workflows/release-scripts.yml
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11.1.1
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - run: pip install bump-my-version==1.5.1 packaging==26.3
+      - run: python -m unittest discover -s ci -p test_release.py -v
