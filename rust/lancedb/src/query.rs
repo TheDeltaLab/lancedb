@@ -2755,6 +2755,81 @@ mod tests {
         }
     }
 
+    /// Hybrid search must keep FTS matches even when all matching vectors are NULL.
+    #[tokio::test]
+    async fn test_hybrid_search_empty_branches() {
+        let tmp_dir = tempdir().unwrap();
+        let conn = connect(tmp_dir.path().to_str().unwrap())
+            .execute()
+            .await
+            .unwrap();
+        let vectors = FixedSizeListArray::from_iter_primitive::<Float32Type, _, _>(
+            [None, Some(vec![Some(1.0), Some(0.0)])],
+            2,
+        );
+        let batch = RecordBatch::try_new(
+            Arc::new(ArrowSchema::new(vec![
+                ArrowField::new("id", DataType::Int32, false),
+                ArrowField::new("text", DataType::Utf8, false),
+                ArrowField::new("vector", vectors.data_type().clone(), true),
+            ])),
+            vec![
+                Arc::new(Int32Array::from(vec![1, 2])),
+                Arc::new(StringArray::from(vec!["copper meadow", "unrelated"])),
+                Arc::new(vectors),
+            ],
+        )
+        .unwrap();
+        let table = conn.create_table("items", batch).execute().await.unwrap();
+        table
+            .create_index(&["text"], Index::FTS(Default::default()))
+            .execute()
+            .await
+            .unwrap();
+
+        for norm in [NormalizeMethod::Score, NormalizeMethod::Rank] {
+            for project in [false, true] {
+                for (filter, words, expected_ids) in [
+                    ("id = 1", "copper", vec![1]),    // Empty vector branch.
+                    ("id = 2", "copper", vec![2]),    // Empty FTS branch.
+                    ("id = 1", "absent", vec![]),     // Both branches empty.
+                    ("id > 0", "copper", vec![1, 2]), // Both branches contribute.
+                ] {
+                    let mut query = table
+                        .query()
+                        .only_if(filter)
+                        .full_text_search(FullTextSearchQuery::new(words.to_string()))
+                        .nearest_to(&[1.0, 0.0])
+                        .unwrap()
+                        .norm(norm.clone());
+                    if project {
+                        query = query.select(Select::columns(&["id"]));
+                    }
+                    let results = query
+                        .execute()
+                        .await
+                        .unwrap()
+                        .try_collect::<Vec<_>>()
+                        .await
+                        .unwrap();
+                    let mut ids = Vec::new();
+                    for batch in results.iter().filter(|batch| batch.num_rows() > 0) {
+                        let column: Int32Array =
+                            downcast_array(batch.column_by_name("id").unwrap());
+                        ids.extend(column.values().iter().copied());
+                        if project {
+                            assert_eq!(batch.num_columns(), 1);
+                        } else {
+                            assert!(batch.column_by_name("_relevance_score").is_some());
+                        }
+                    }
+                    ids.sort_unstable();
+                    assert_eq!(ids, expected_ids, "filter={filter}, project={project}");
+                }
+            }
+        }
+    }
+
     #[tokio::test]
     async fn test_hybrid_search_empty_table() {
         let tmp_dir = tempdir().unwrap();

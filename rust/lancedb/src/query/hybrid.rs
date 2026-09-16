@@ -61,9 +61,11 @@ pub fn rank(results: RecordBatch, column: &str, ascending: Option<bool>) -> Resu
 
 /// Get the query schemas needed when combining the search results.
 ///
-/// If either of the record batches are empty, then we create a schema from the
-/// other record batch, and replace the score/distance column. If both record
-/// batches are empty, create empty schemas.
+/// If either stream contains no record batches, derive its schema from the
+/// other stream: `_distance` becomes `_score` for missing FTS results, and
+/// `_score` becomes `_distance` for missing vector results. This lets ranking
+/// and normalization accept an empty branch while retaining the other results.
+/// If both streams contain no batches, create empty schemas.
 pub fn query_schemas(
     fts_results: &[RecordBatch],
     vec_results: &[RecordBatch],
@@ -78,7 +80,7 @@ pub fn query_schemas(
             (Arc::new(fts_schema), vec_schema)
         }
         (Some(fts_schema), None) => {
-            let vec_schema = with_field_name_replaced(&fts_schema, DIST_COL, SCORE_COL);
+            let vec_schema = with_field_name_replaced(&fts_schema, SCORE_COL, DIST_COL);
             (fts_schema, Arc::new(vec_schema))
         }
         (None, None) => (Arc::new(empty_fts_schema()), Arc::new(empty_vec_schema())),
@@ -445,5 +447,32 @@ mod test {
             scores.iter().map(|e| e.unwrap()).collect::<Vec<_>>(),
             vec![0.0, 0.0, 0.0, 0.0, 0.0]
         );
+    }
+
+    #[test]
+    fn test_query_schemas_empty_branches() {
+        for has_fts in [false, true] {
+            for has_vectors in [false, true] {
+                let fts = if has_fts {
+                    vec![RecordBatch::new_empty(Arc::new(empty_fts_schema()))]
+                } else {
+                    vec![]
+                };
+                let vectors = if has_vectors {
+                    vec![RecordBatch::new_empty(Arc::new(empty_vec_schema()))]
+                } else {
+                    vec![]
+                };
+                let (fts_schema, vec_schema) = query_schemas(&fts, &vectors);
+                assert_eq!(fts_schema.as_ref(), &empty_fts_schema());
+                assert_eq!(vec_schema.as_ref(), &empty_vec_schema());
+                // Both normalization modes must accept these empty batches.
+                for (schema, column) in [(fts_schema, SCORE_COL), (vec_schema, DIST_COL)] {
+                    let batch = RecordBatch::new_empty(schema);
+                    let batch = rank(batch, column, None).unwrap();
+                    assert_eq!(normalize_scores(batch, column, None).unwrap().num_rows(), 0);
+                }
+            }
+        }
     }
 }
