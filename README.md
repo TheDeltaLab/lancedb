@@ -35,6 +35,16 @@ cargo check --tests --examples
 cargo test --tests
 ```
 
+The optional `polars` feature integrates with Polars 0.43. Use the same Polars
+version in applications passing DataFrames to LanceDB. Arrow conversions use
+`CompatLevel::oldest()` to preserve standard string/binary types across the FFI
+boundary. Run `cargo test -p lancedb --features polars arrow::tests` and
+`cargo run -p lancedb --features polars --example polars` to verify this integration.
+
+AWS SDK dependencies explicitly enable `default-https-client` and `rt-tokio`
+instead of the legacy `rustls` feature, which pulls in hyper 0.14 and h2 0.3.
+Dependency updates should retain this choice and pass `cargo deny check`.
+
 ### Node.js
 
 ```sh
