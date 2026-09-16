@@ -224,7 +224,7 @@ impl IntoPolars for SendableRecordBatchStream {
     async fn into_polars(mut self) -> Result<DataFrame> {
         let polars_schema =
             polars_arrow_convertors::convert_arrow_rb_schema_to_polars_df_schema(&self.schema())?;
-        let mut acc_df: DataFrame = DataFrame::from(&polars_schema);
+        let mut acc_df = DataFrame::empty_with_schema(&polars_schema);
         while let Some(record_batch) = self.next().await {
             let new_df = polars_arrow_convertors::convert_arrow_rb_to_polars_df(
                 &record_batch?,
