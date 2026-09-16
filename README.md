@@ -69,9 +69,28 @@ Apache-2.0 — same as upstream.
 
 ## Releasing this fork
 
-Use **Create release commit** on a branch, starting with `dry_run=true`.
-The workflow defaults to a preview release. Stable releases reject prerelease
-Lance dependencies; they no longer depend on the removed Python package.
+The established publishing path is a version-bump PR followed by a tag push:
+
+1. Choose a version unused both in npm and in the repository's tags. Historical
+   upstream tags occupy many versions, including `v0.1.8` through `v0.1.14` and
+   `v0.1.16` through `v0.1.19`; the next fork release is `0.1.20`.
+2. On a release branch, run `bump-my-version bump --new-version VERSION
+   --no-commit --no-tag patch`, then `bash ci/update_lockfiles.sh`. Review all
+   package versions and locks, commit them, and open a PR.
+3. After CI passes and the PR merges, tag the merged commit as `vVERSION` and
+   push that single tag. **NPM Publish** builds and tests the native packages,
+   then publishes using `NPM_TOKEN`. Stable versions use `latest`; prereleases
+   use `preview`. PR runs only pack artifacts and do not publish.
+4. Verify the workflow and npm package versions before updating consumers.
+
+This path does not require `LANCEDB_RELEASE_TOKEN`. The fork's historical stable
+npm releases can depend on prerelease Lance; the stricter dependency check below
+belongs to the optional preparation workflow, not the npm publishing workflow.
+
+**Create release commit** is an optional automation entry point, not the
+historical release path. It requires `LANCEDB_RELEASE_TOKEN` even for checkout;
+it defaults to `dry_run=true` and preview releases. Its stable mode rejects
+prerelease Lance dependencies and does not depend on the removed Python package.
 
 The release script requires a clean checkout, updates all Node/Rust package
 versions, checks Conventional Commit `!` and `BREAKING CHANGE:` /
