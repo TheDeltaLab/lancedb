@@ -22,7 +22,10 @@ use futures::{Stream, StreamExt, TryStreamExt};
 use lance_datagen::{BatchCount, BatchGeneratorBuilder, RowCount};
 
 #[cfg(feature = "polars")]
-use {crate::polars_arrow_convertors, polars::frame::ArrowChunk, polars::prelude::DataFrame};
+use {
+    crate::polars_arrow_convertors, polars::prelude::DataFrame,
+    polars_arrow::record_batch::RecordBatch as PolarsRecordBatch,
+};
 
 use crate::{Error, error::Result};
 
@@ -155,7 +158,7 @@ impl LanceDbDatagenExt for BatchGeneratorBuilder {
 #[cfg(feature = "polars")]
 /// An iterator of record batches formed from a Polars DataFrame.
 pub struct PolarsDataFrameRecordBatchReader {
-    chunks: std::vec::IntoIter<ArrowChunk>,
+    chunks: std::vec::IntoIter<PolarsRecordBatch>,
     arrow_schema: Arc<arrow_schema::Schema>,
 }
 
@@ -170,8 +173,8 @@ impl PolarsDataFrameRecordBatchReader {
             polars_arrow_convertors::convert_polars_df_schema_to_arrow_rb_schema(df.schema())?;
         Ok(Self {
             chunks: df
-                .iter_chunks(polars_arrow_convertors::POLARS_ARROW_FLAVOR)
-                .collect::<Vec<ArrowChunk>>()
+                .iter_chunks(polars_arrow_convertors::POLARS_ARROW_FLAVOR, false)
+                .collect::<Vec<PolarsRecordBatch>>()
                 .into_iter(),
             arrow_schema,
         })
@@ -240,14 +243,14 @@ mod tests {
     use polars::prelude::{DataFrame, NamedFrom, Series};
 
     fn get_record_batch_reader_from_polars() -> Box<dyn arrow_array::RecordBatchReader + Send> {
-        let mut string_series = Series::new("string", &["ab"]);
-        let mut int_series = Series::new("int", &[1]);
-        let mut float_series = Series::new("float", &[1.0]);
+        let mut string_series = Series::new("string".into(), &["ab"]);
+        let mut int_series = Series::new("int".into(), &[1]);
+        let mut float_series = Series::new("float".into(), &[1.0]);
         let df1 = DataFrame::new(vec![string_series, int_series, float_series]).unwrap();
 
-        string_series = Series::new("string", &["bc"]);
-        int_series = Series::new("int", &[2]);
-        float_series = Series::new("float", &[2.0]);
+        string_series = Series::new("string".into(), &["bc"]);
+        int_series = Series::new("int".into(), &[2]);
+        float_series = Series::new("float".into(), &[2.0]);
         let df2 = DataFrame::new(vec![string_series, int_series, float_series]).unwrap();
 
         Box::new(PolarsDataFrameRecordBatchReader::new(df1.vstack(&df2).unwrap()).unwrap())
@@ -299,6 +302,35 @@ mod tests {
         // Test number of chunks and rows
         assert_eq!(df.n_chunks(), 2);
         assert_eq!(df.height(), 2);
+
+        // Check values as well as schemas across the Arrow FFI boundary.
+        assert_eq!(
+            df.column("string")
+                .unwrap()
+                .str()
+                .unwrap()
+                .into_iter()
+                .collect::<Vec<_>>(),
+            vec![Some("ab"), Some("bc")]
+        );
+        assert_eq!(
+            df.column("int")
+                .unwrap()
+                .i32()
+                .unwrap()
+                .into_iter()
+                .collect::<Vec<_>>(),
+            vec![Some(1), Some(2)]
+        );
+        assert_eq!(
+            df.column("float")
+                .unwrap()
+                .f64()
+                .unwrap()
+                .into_iter()
+                .collect::<Vec<_>>(),
+            vec![Some(1.0), Some(2.0)]
+        );
 
         // Test schema conversion
         assert_eq!(

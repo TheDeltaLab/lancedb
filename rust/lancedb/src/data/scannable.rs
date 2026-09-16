@@ -1136,8 +1136,8 @@ mod tests {
 
         fn make_df() -> DataFrame {
             DataFrame::new(vec![
-                Series::new("id", &[1i32, 2, 3]),
-                Series::new("val", &[1.1f64, 2.2, 3.3]),
+                Series::new("id".into(), &[1i32, 2, 3]),
+                Series::new("val".into(), &[1.1f64, 2.2, 3.3]),
             ])
             .unwrap()
         }

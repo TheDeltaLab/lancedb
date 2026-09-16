@@ -10,9 +10,9 @@ use lancedb::{Result, connect};
 use polars::prelude::{DataFrame, NamedFrom, Series};
 
 fn make_dataframe() -> DataFrame {
-    let ids = Series::new("id", &[1i32, 2, 3, 4, 5]);
-    let names = Series::new("name", &["Alice", "Bob", "Carol", "Dave", "Eve"]);
-    let scores = Series::new("score", &[9.5f64, 8.1, 7.3, 9.0, 6.5]);
+    let ids = Series::new("id".into(), &[1i32, 2, 3, 4, 5]);
+    let names = Series::new("name".into(), &["Alice", "Bob", "Carol", "Dave", "Eve"]);
+    let scores = Series::new("score".into(), &[9.5f64, 8.1, 7.3, 9.0, 6.5]);
     DataFrame::new(vec![ids, names, scores]).unwrap()
 }
 
@@ -29,9 +29,9 @@ async fn main() -> Result<()> {
 
     // Append more rows.
     let more = DataFrame::new(vec![
-        Series::new("id", &[6i32, 7]),
-        Series::new("name", &["Frank", "Grace"]),
-        Series::new("score", &[7.8f64, 8.9]),
+        Series::new("id".into(), &[6i32, 7]),
+        Series::new("name".into(), &["Frank", "Grace"]),
+        Series::new("score".into(), &[7.8f64, 8.9]),
     ])
     .unwrap();
     table.add(more).execute().await?;

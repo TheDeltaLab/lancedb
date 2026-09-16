@@ -73,7 +73,8 @@ serde_json = { version = "1" }
 async-openai = { version = "0.20.0", optional = true }
 serde_with = { version = "3.8.1" }
 tempfile = "3.5.0"
-aws-sdk-bedrockruntime = { version = "1.27.0", optional = true }
+# Use the current HTTPS client without the legacy hyper 0.14 / h2 0.3 connector.
+aws-sdk-bedrockruntime = { version = "1.27.0", optional = true, default-features = false, features = ["default-https-client", "rt-tokio"] }
 reqwest = { version = "0.12.0", default-features = false, features = [
     "charset",
     "gzip",
@@ -83,8 +84,8 @@ reqwest = { version = "0.12.0", default-features = false, features = [
     "stream",
 ], optional = true }
 uuid = { version = "1.7.0", features = ["v4", "v5"] }
-polars-arrow = { version = ">=0.37,<0.40.0", optional = true }
-polars = { version = ">=0.37,<0.40.0", optional = true }
+polars-arrow = { version = "0.43.1", optional = true }
+polars = { version = "0.43.1", optional = true }
 hf-hub = { version = "0.4.1", optional = true, default-features = false, features = [
     "rustls-tls",
     "tokio",
@@ -103,9 +104,9 @@ random_word = { version = "0.4.3", features = ["en"] }
 tokio = { version = "1.23", features = ["io-util", "macros", "net", "rt-multi-thread", "sync"] }
 uuid = { version = "1.7.0", features = ["v4"] }
 walkdir = "2"
-aws-sdk-dynamodb = { version = "1.55.0" }
-aws-sdk-s3 = { version = "1.55.0" }
-aws-sdk-kms = { version = "1.48.0" }
+aws-sdk-dynamodb = { version = "1.55.0", default-features = false, features = ["default-https-client", "rt-tokio"] }
+aws-sdk-s3 = { version = "1.55.0", default-features = false, features = ["default-https-client", "rt-tokio", "sigv4a", "http-1x"] }
+aws-sdk-kms = { version = "1.48.0", default-features = false, features = ["default-https-client", "rt-tokio"] }
 aws-config = { version = "1.5.10" }
 aws-smithy-runtime = { version = "1.9.1" }
 datafusion.workspace = true
