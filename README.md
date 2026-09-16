@@ -66,3 +66,36 @@ When upstream `lancedb/lancedb` releases a new version:
 ## License
 
 Apache-2.0 — same as upstream.
+
+## Releasing this fork
+
+Use **Create release commit** on a branch, starting with `dry_run=true`.
+The workflow defaults to a preview release. Stable releases reject prerelease
+Lance dependencies; they no longer depend on the removed Python package.
+
+The release script requires a clean checkout, updates all Node/Rust package
+versions, checks Conventional Commit `!` and `BREAKING CHANGE:` /
+`BREAKING-CHANGE:` markers since the last stable tag, then updates `Cargo.lock`
+and `nodejs/pnpm-lock.yaml`. Breaking changes require a minor (or major) bump.
+It creates one final commit and an annotated tag only after lockfile updates
+and pnpm's frozen-lockfile validation succeed. A failed preparation can leave
+uncommitted version edits, so use a disposable checkout for local dry runs.
+Release and changelog baselines follow the branch's first-parent history to
+avoid unrelated upstream tags. Existing tags are never overwritten. This fork
+inherited upstream tags (including `v0.1.8`), so choose an unused version before
+preparing a stable release.
+
+With `dry_run=false`, the workflow atomically pushes that branch commit and
+that single tag. The tag triggers native builds/tests and npm publishing;
+preview packages use the `preview` dist-tag and GitHub prerelease flag.
+Dry runs do not push tags, create GitHub releases, or publish npm packages.
+
+To test the release scripts without publishing, install Python 3.11+, Git,
+Cargo, pnpm 11.1.1 and `bump-my-version==1.5.1 packaging==26.3`, then run:
+
+```sh
+python -m unittest discover -s ci -p test_release.py -v
+```
+
+Tests use disposable repositories without remotes and real version/lockfile
+commands, including a simulated lock-update failure before commit/tag creation.

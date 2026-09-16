@@ -1,34 +1,27 @@
+#!/usr/bin/env python3
+"""Validate Rust Lance dependencies without relying on removed Python bindings."""
+import re
+import sys
 import tomllib
 
-found_preview_lance = False
 
-with open("Cargo.toml", "rb") as f:
-    cargo_data = tomllib.load(f)
+def validate(manifest="Cargo.toml"):
+    with open(manifest, "rb") as handle:
+        dependencies = tomllib.load(handle)["workspace"]["dependencies"]
+    for name, dependency in dependencies.items():
+        if name != "lance" and not name.startswith("lance-"):
+            continue
+        versions = [dependency] if isinstance(dependency, str) else [
+            dependency.get("version", ""), dependency.get("tag", "")
+        ]
+        if not any(versions):
+            raise ValueError(f"Cannot establish a stable version for {name}")
+        if any(re.search(r"\d+\.\d+\.\d+-[0-9A-Za-z]", v) for v in versions):
+            raise ValueError(f"Stable release cannot use prerelease dependency {name}: {versions}")
 
-    for name, dep in cargo_data["workspace"]["dependencies"].items():
-        if name == "lance" or name.startswith("lance-"):
-            if isinstance(dep, str):
-                version = dep
-            elif isinstance(dep, dict):
-                # Version doesn't have the beta tag in it, so we instead look
-                # at the git tag.
-                version = dep.get('tag', dep.get('version'))
-            else:
-                raise ValueError("Unexpected type for dependency: " + str(dep))
 
-            if "beta" in version:
-                found_preview_lance = True
-                print(f"Dependency '{name}' is a preview version: {version}")
-
-with open("python/pyproject.toml", "rb") as f:
-    py_proj_data = tomllib.load(f)
-
-    for dep in py_proj_data["project"]["dependencies"]:
-        if dep.startswith("pylance"):
-            if "b" in dep:
-                found_preview_lance = True
-                print(f"Dependency '{dep}' is a preview version")
-            break  # Only one pylance dependency
-
-if found_preview_lance:
-    raise ValueError("Found preview version of Lance in dependencies")
+if __name__ == "__main__":
+    try:
+        validate()
+    except ValueError as error:
+        sys.exit(str(error))
